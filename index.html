@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Attendee Realtime Transcription Demo</title>
+  <style>
+    body{font-family:system-ui,Arial;margin:2rem}
+    #log{white-space:pre-wrap;border:1px solid #ccc;padding:1rem;height:60vh;overflow:auto}
+    #status{margin:1rem 0;padding:0.5rem;border:1px solid #ddd;border-radius:4px;background:#f9f9f9}
+    .status-label{font-weight:bold;display:inline-block;margin-right:0.5rem}
+    .status-value{color:#333}
+    .status-ended{color:#e74c3c}
+    .status-running{color:#27ae60}
+    .status-starting{color:#f39c12}
+    .status-error{color:#e74c3c}
+  </style>
+</head>
+<body>
+  <h1>Attendee Realtime Transcription Demo</h1>
+
+  <label>
+    Meeting URL:
+    <input id="meetingUrl" size="60"
+           placeholder="https://meet.google.com/abc-defg-hij..." />
+  </label>
+  <button id="startBtn">Launch Bot &amp; Start Transcribing</button>
+
+  <div id="status">
+    <span class="status-label">Bot Status:</span>
+    <span id="statusValue" class="status-value">Not started</span>
+  </div>
+
+  <div id="joiningBanner" style="display:none;margin:0.5rem 0;padding:0.5rem;background:#fff3cd;border:1px solid #ffeaa7;border-radius:4px;color:#856404;font-size:0.9em;">
+    ⏱️ It can take up to one minute for the bot to join the meeting
+  </div>
+
+  <h2>Transcript</h2>
+  <div id="log"></div>
+
+  <script>
+  const log           = document.getElementById("log");
+  const meetingUrl    = document.getElementById("meetingUrl");
+  const btn           = document.getElementById("startBtn");
+  const statusValue   = document.getElementById("statusValue");
+  const joiningBanner = document.getElementById("joiningBanner");
+
+  let lastStatusTimestamp = null;
+
+  function updateStatus(state, eventType = null, timestamp = null) {
+    // If we have a timestamp, check if it's newer than the last one
+    if (timestamp && lastStatusTimestamp) {
+      const newTime = new Date(timestamp);
+      const lastTime = new Date(lastStatusTimestamp);
+      if (newTime <= lastTime) {
+        // Ignore older status updates
+        return;
+      }
+    }
+    
+    // Update the last timestamp if provided
+    if (timestamp) {
+      lastStatusTimestamp = timestamp;
+    }
+
+    statusValue.textContent = state;
+    statusValue.className = "status-value";
+    
+    // Show/hide joining banner
+    if (state === "joining") {
+      joiningBanner.style.display = "block";
+    } else {
+      joiningBanner.style.display = "none";
+    }
+    
+    // Add appropriate CSS class based on state
+    if (state === "ended" || state === "fatal_error" || state === "data_deleted") {
+      statusValue.classList.add("status-ended");
+
+      btn.disabled = false;
+      btn.textContent = "Launch Bot & Start Transcribing";
+
+    } else if (state === "joined_recording") {
+      statusValue.classList.add("status-running");
+    } else if (state === "ready" || state === "joining" || state === "joined_not_recording" || 
+               state === "leaving" || state === "post_processing" || state === "waiting_room") {
+      statusValue.classList.add("status-starting");
+    }
+  }
+
+  // Open SSE stream immediately so we never miss a line
+  const evtSource = new EventSource("/stream");
+  evtSource.onmessage = (ev) => {
+    const message = JSON.parse(ev.data);
+    
+    if (message.type === "transcript") {
+      const data = message.data;
+      const ts   = new Date(data.timestamp_ms).toLocaleTimeString();
+      log.textContent += `[${ts}] ${data.speaker_name}: ${data.transcription.transcript}\n`;
+      log.scrollTop = log.scrollHeight;
+    } else if (message.type === "status") {
+      const data = message.data;
+      updateStatus(data.new_state, data.event_type, data.created_at);
+    }
+  };
+
+  btn.onclick = async () => {
+    const url = meetingUrl.value.trim();
+    if (!url) { alert("Enter a meeting URL"); return; }
+
+    btn.disabled = true;
+    btn.textContent = "Launching…";
+    updateStatus("ready");
+
+    const resp = await fetch("/launch", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({meeting_url: url}),
+    });
+
+    if (resp.ok) {
+      const {bot_id} = await resp.json();
+      updateStatus("joining");
+      btn.disabled = true;
+      btn.textContent = "Launched";
+    } else {
+      alert("Failed: " + (await resp.text()));
+      btn.disabled = false;
+      btn.textContent = "Launch Bot & Start Transcribing";
+      updateStatus("fatal_error");
+    }
+  };
+  </script>
+</body>
+</html>
+
