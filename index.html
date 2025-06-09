@@ -190,9 +190,35 @@
     }
   }
 
-  // Check for Zoom URL when user types
-  meetingUrl.addEventListener('input', checkZoomUrl);
-  meetingUrl.addEventListener('paste', () => setTimeout(checkZoomUrl, 0));
+  function saveMeetingUrl() {
+    const url = meetingUrl.value.trim();
+    if (url) {
+      localStorage.setItem('attendee_meeting_url', url);
+    }
+  }
+
+  function loadMeetingUrl() {
+    const savedUrl = localStorage.getItem('attendee_meeting_url');
+    if (savedUrl) {
+      meetingUrl.value = savedUrl;
+      checkZoomUrl(); // Check if it's a Zoom URL
+    }
+  }
+
+  // Load saved URL on page load
+  loadMeetingUrl();
+
+  // Check for Zoom URL and save when user types
+  meetingUrl.addEventListener('input', () => {
+    checkZoomUrl();
+    saveMeetingUrl();
+  });
+  meetingUrl.addEventListener('paste', () => {
+    setTimeout(() => {
+      checkZoomUrl();
+      saveMeetingUrl();
+    }, 0);
+  });
   </script>
 </body>
 </html>
