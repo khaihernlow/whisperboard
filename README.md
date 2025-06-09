@@ -1,6 +1,6 @@
 # Attendee Real-time Transcription Demo
 
-A web application that demonstrates real-time meeting transcription using the [Attendee](https://github.com/attendee-labs/attendee) open-source meeting bot API. This demo allows you to launch a bot that joins online meetings (Google Meet, Microsoft Teams, Zoom) and provides live transcription through a web interface.
+A web application that demonstrates real-time meeting transcription using the [Attendee](https://github.com/attendee-labs/attendee) open-source meeting bot API. This demo allows you to launch a bot that joins online meetings (Google Meet, Microsoft Teams, Zoom) and view the transcript in real-time.
 
 ## Features
 
@@ -18,7 +18,7 @@ A web application that demonstrates real-time meeting transcription using the [A
 
 4. **Attendee Credentials**: You'll need to create:
    - An API key from your Attendee dashboard
-   - A webhook URL that points to your locally running instance of this demo via ngrok.
+   - A webhook URL that points to your locally running instance of this application via ngrok.
 
 ## Setup Instructions
 
