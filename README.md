@@ -2,7 +2,7 @@
 
 A web application that demonstrates real-time meeting transcription using the [Attendee](https://github.com/attendee-labs/attendee) open-source meeting bot API. This demo allows you to launch a bot that joins online meetings (Google Meet, Microsoft Teams, Zoom) and view the transcript in real-time.
 
-See a [quick demo of how to install and use the app]([https://www.loom.com/embed/b738d02aabf84f489f0bfbadf71605e3?sid=ea605ea9-8961-4cc3-9ba9-10b7dbbb8034](https://www.loom.com/share/55cd2aa81b3d43f28c2cd179711b02fa?sid=09b37fc6-07d1-4685-aff5-cc52624608ef)).
+See a [quick demo of how to install and use the app](https://www.loom.com/share/55cd2aa81b3d43f28c2cd179711b02fa?sid=09b37fc6-07d1-4685-aff5-cc52624608ef).
 
 
 ## Features
