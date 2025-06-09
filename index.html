@@ -24,6 +24,7 @@
            placeholder="https://meet.google.com/abc-defg-hij..." />
   </label>
   <button id="startBtn">Launch Bot &amp; Start Transcribing</button>
+  <button id="leaveBtn" style="display:none;margin-left:10px;background:#e74c3c;color:white;">Leave Meeting</button>
 
   <div id="status">
     <span class="status-label">Bot Status:</span>
@@ -41,10 +42,12 @@
   const log           = document.getElementById("log");
   const meetingUrl    = document.getElementById("meetingUrl");
   const btn           = document.getElementById("startBtn");
+  const leaveBtn      = document.getElementById("leaveBtn");
   const statusValue   = document.getElementById("statusValue");
   const joiningBanner = document.getElementById("joiningBanner");
 
   let lastStatusTimestamp = null;
+  let currentBotId = null;
 
   function updateStatus(state, eventType = null, timestamp = null) {
     // If we have a timestamp, check if it's newer than the last one
@@ -72,18 +75,51 @@
       joiningBanner.style.display = "none";
     }
     
+    // Show/hide leave button based on state
+    if (state === "joined_not_recording" || state === "joined_recording") {
+      leaveBtn.style.display = "inline-block";
+    } else {
+      leaveBtn.style.display = "none";
+    }
+    
     // Add appropriate CSS class based on state
     if (state === "ended" || state === "fatal_error" || state === "data_deleted") {
       statusValue.classList.add("status-ended");
 
       btn.disabled = false;
       btn.textContent = "Launch Bot & Start Transcribing";
+      currentBotId = null;
 
     } else if (state === "joined_recording") {
       statusValue.classList.add("status-running");
     } else if (state === "ready" || state === "joining" || state === "joined_not_recording" || 
                state === "leaving" || state === "post_processing" || state === "waiting_room") {
       statusValue.classList.add("status-starting");
+    }
+  }
+
+  async function leaveBot() {
+    if (!currentBotId) return;
+    
+    leaveBtn.disabled = true;
+    leaveBtn.textContent = "Leaving...";
+    
+    try {
+      const resp = await fetch(`/leave/${currentBotId}`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"}
+      });
+      
+      if (!resp.ok) {
+        alert("Failed to leave: " + (await resp.text()));
+        leaveBtn.disabled = false;
+        leaveBtn.textContent = "Leave Meeting";
+      }
+      // If successful, the webhook will update the status
+    } catch (error) {
+      alert("Failed to leave: " + error.message);
+      leaveBtn.disabled = false;
+      leaveBtn.textContent = "Leave Meeting";
     }
   }
 
@@ -122,6 +158,10 @@
       updateStatus("joining");
       btn.disabled = true;
       btn.textContent = "Launched";
+      // reset the leave button
+      leaveBtn.disabled = false;
+      leaveBtn.textContent = "Leave Meeting";
+      currentBotId = bot_id;
     } else {
       alert("Failed: " + (await resp.text()));
       btn.disabled = false;
@@ -129,6 +169,8 @@
       updateStatus("fatal_error");
     }
   };
+
+  leaveBtn.onclick = leaveBot;
   </script>
 </body>
 </html>

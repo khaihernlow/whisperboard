@@ -71,6 +71,25 @@ def launch_bot():
     return jsonify({"bot_id": bot["id"]}), 201
 
 # ----------------------------------------------------------------------
+# Endpoint: Make bot leave meeting
+# ----------------------------------------------------------------------
+@app.post("/leave/<bot_id>")
+def leave_bot(bot_id):
+    resp = requests.post(
+        f"{ATTENDEE_API_BASE}/api/v1/bots/{bot_id}/leave",
+        headers={
+            "Authorization": f"Token {ATTENDEE_API_KEY}",
+            "Content-Type":  "application/json",
+        },
+        json={},
+        timeout=30,
+    )
+    if resp.status_code >= 300:
+        return jsonify({"error": resp.text}), resp.status_code
+
+    return jsonify({"success": True}), 200
+
+# ----------------------------------------------------------------------
 # Endpoint: Webhook receiver  (transcript.update, etc.)
 # ----------------------------------------------------------------------
 def _sign_payload(payload: Dict) -> str:
