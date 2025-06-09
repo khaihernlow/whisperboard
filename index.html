@@ -26,6 +26,14 @@
   <button id="startBtn">Launch Bot &amp; Start Transcribing</button>
   <button id="leaveBtn" style="display:none;margin-left:10px;background:#e74c3c;color:white;">Leave Meeting</button>
 
+
+  <div id="zoomBanner" style="display:none;margin:0.5rem 0;padding:0.5rem;background:#e3f2fd;border:1px solid #bbdefb;border-radius:4px;color:#1565c0;font-size:0.9em;">
+    📹 <strong>Warning:</strong> You need to add Zoom and Deepgram credentials in your Attendee dashboard to join Zoom meetings.
+    <br>
+    <br>
+    <a href="https://www.loom.com/share/7cbd3eab1bc4438fb1badcb3787996d6?sid=da6a46af-19e5-4196-9bfb-07152e6454fb" target="_blank" style="color:#1565c0;text-decoration:underline;">Watch this video</a> 
+    to see how, or try a Google Meet or Microsoft Teams meeting instead (no credentials required).
+  </div>
   <div id="status">
     <span class="status-label">Bot Status:</span>
     <span id="statusValue" class="status-value">Not started</span>
@@ -45,6 +53,7 @@
   const leaveBtn      = document.getElementById("leaveBtn");
   const statusValue   = document.getElementById("statusValue");
   const joiningBanner = document.getElementById("joiningBanner");
+  const zoomBanner    = document.getElementById("zoomBanner");
 
   let lastStatusTimestamp = null;
   let currentBotId = null;
@@ -171,6 +180,19 @@
   };
 
   leaveBtn.onclick = leaveBot;
+
+  function checkZoomUrl() {
+    const url = meetingUrl.value.trim().toLowerCase();
+    if (url.includes('zoom.us') || url.includes('zoom.com')) {
+      zoomBanner.style.display = "block";
+    } else {
+      zoomBanner.style.display = "none";
+    }
+  }
+
+  // Check for Zoom URL when user types
+  meetingUrl.addEventListener('input', checkZoomUrl);
+  meetingUrl.addEventListener('paste', () => setTimeout(checkZoomUrl, 0));
   </script>
 </body>
 </html>
