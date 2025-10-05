@@ -1,217 +1,105 @@
-# Real-time Meeting Transcription with AI Analysis
+# Whisperboard - Meeting Transcription and Analysis
 
-A comprehensive web application that demonstrates real-time meeting transcription using the [Attendee](https://github.com/attendee-labs/attendee) open-source meeting bot API, enhanced with AI-powered conversation analysis and automatic diagram generation. This app launches a bot that joins online meetings (Google Meet, Microsoft Teams, Zoom), transcribes conversations in real-time, analyzes them using Google's Gemini AI, and creates visual diagrams in Miro.
+A Flask application that provides real-time meeting transcription using the Attendee API, with AI-powered conversation analysis and Miro board integration.
+
+## Project Structure
+
+```
+whisperboard/
+├── app/                          # Main application package
+│   ├── __init__.py              # Package initialization
+│   ├── config/                  # Configuration management
+│   │   ├── __init__.py         # Config package init
+│   │   └── settings.py         # Environment and app settings
+│   ├── models/                  # Data models
+│   │   └── __init__.py         # Data models (ConversationBuffer, BotSession, etc.)
+│   ├── routes/                  # Route handlers
+│   │   ├── main.py             # Main application routes
+│   │   └── api.py              # API endpoints
+│   └── services/               # External service integrations
+│       └── __init__.py         # Service classes (Attendee, Gemini, Miro)
+├── static/                     # Static assets
+│   ├── css/
+│   │   └── style.css           # Application styles
+│   └── js/
+│       ├── app.js              # Main application logic
+│       ├── analysis.js         # Conversation analysis functionality
+│       ├── miro.js             # Miro board integration
+│       └── utils.js            # Utility functions
+├── templates/                   # HTML templates
+│   └── index.html              # Main application template
+├── main.py                     # Application entry point
+├── requirements.txt            # Python dependencies
+├── .env                        # Environment variables
+└── README.md                   # This file
+```
 
 ## Features
 
-- 🤖 Launch meeting bots with a single click
-- 📝 Real-time transcription with speaker identification
-- 📹 Support for Google Meet, Microsoft Teams, and Zoom meetings
-- 🧠 AI-powered conversation analysis using Google Gemini
-- 📊 Automatic diagram generation in Miro
-- 📋 Key topics, decisions, and action items extraction
-- 👥 Speaker engagement analysis
-- 🔄 Real-time conversation buffering and analysis
+- **Real-time Transcription**: Live meeting transcription using Attendee API
+- **AI Analysis**: Conversation analysis using Google Gemini AI
+- **Visual Diagrams**: Automatic Miro board creation with meeting insights
+- **Modern UI**: Clean, responsive interface with organized code structure
 
-## Prerequisites
+## Setup
 
-1. **Attendee Instance**: You need a running instance of [Attendee](https://github.com/attendee-labs/attendee). This can be the hosted instance at https://app.attendee.dev or an instance hosted on your local machine.
-
-2. **Ngrok** (If using the cloud instance of Attendee): Since Attendee needs to send webhooks to your local application, you'll need [ngrok](https://ngrok.com/) to create a secure tunnel to your localhost. Ngrok is free for basic usage.
-
-3. **Python 3.7+**: This demo uses Flask and requires Python 3.7 or higher.
-
-4. **API Keys**: You'll need to create:
-   - An API key from your Attendee dashboard
-   - A webhook URL that points to your locally running instance of this application via ngrok
-   - A Google Gemini API key for conversation analysis
-   - A Miro access token for diagram creation
-
-## Setup Instructions
-
-### 1. Clone the Repository
-
-```bash
-git clone https://github.com/attendee-labs/realtime-transcription-example
-cd realtime-transcription-example
-```
-
-### 2. Install virtual environment and dependencies
-
-```bash
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-```
-
-### 3. Install and Run Ngrok
-
-1. **Install ngrok**: Download from [ngrok.com](https://ngrok.com/) or install via package manager:
+1. Install dependencies:
    ```bash
-   # On macOS with Homebrew
-   brew install ngrok
-   
-   # On Ubuntu/Debian
-   snap install ngrok
+   pip install -r requirements.txt
    ```
 
-2. **Start ngrok tunnel**: In a separate terminal, run:
+2. Set up environment variables in `.env`:
+   ```
+   ATTENDEE_API_KEY=your_attendee_api_key
+   WEBHOOK_SECRET=your_webhook_secret
+   GEMINI_API_KEY=your_gemini_api_key
+   MIRO_ACCESS_TOKEN=your_miro_access_token
+   ```
+
+3. Run the application:
    ```bash
-   ngrok http 5005
+   python main.py
    ```
-   
-3. **Copy the public URL**: Ngrok will display something like:
-   ```
-   Forwarding    https://abc123.ngrok.io -> http://localhost:5005
-   ```
-   Copy the `https://abc123.ngrok.io` URL - you'll need this for webhook configuration.
-
-### 4. Configure Attendee
-
-1. Sign into your Attendee account
-2. Navigate to the API Keys section and create a new API key
-3. Set up a webhook endpoint:
-   - Go to Settings -> Webhooks
-   - Add a new webhook with URL: `https://your-ngrok-url.ngrok.io/webhook` (replace with your actual ngrok URL)
-   - Subscribe to these events:
-     - `transcript.update` - For real-time transcription
-     - `bot.state_change` - For bot status updates
-   - Copy the webhook secret
-
-### 5. Set Environment Variables
-
-Create a `config.env` file in the project root (copy from `config.env.example`):
-
-```bash
-cp config.env.example config.env
-```
-
-Then edit `config.env` with your actual API keys:
-
-```bash
-# Attendee API Configuration
-ATTENDEE_API_KEY=your_attendee_api_key_here
-WEBHOOK_SECRET=your_webhook_secret_here
-ATTENDEE_API_BASE=https://app.attendee.dev
-
-# Gemini API Configuration (for conversation analysis)
-GEMINI_API_KEY=your_gemini_api_key_here
-
-# Miro API Configuration (for diagram creation)
-MIRO_ACCESS_TOKEN=your_miro_access_token_here
-```
-
-#### Getting API Keys:
-
-1. **Attendee API Key**: 
-   - Sign up at https://app.attendee.dev
-   - Go to API Keys section and create a new key
-
-2. **Gemini API Key**:
-   - Go to https://makersuite.google.com/app/apikey
-   - Create a new API key
-
-3. **Miro Access Token**:
-   - Go to https://developers.miro.com/
-   - Create a new app and generate an access token
-
-### 6. Run the Application
-
-```bash
-python app.py
-```
-
-The server will start on `http://localhost:5005`. You can access it locally, but webhooks will be received via the ngrok tunnel.
-
-## Usage
-
-1. **Open the Web Interface**: Navigate to `http://localhost:5005` in your browser
-
-2. **Enter Meeting URL**: Paste a meeting URL from:
-   - Google Meet: `https://meet.google.com/xxx-xxxx-xxx`
-   - Microsoft Teams: `https://teams.microsoft.com/...`
-   - Zoom: `https://zoom.us/j/...` (requires Zoom credentials in Attendee)
-
-3. **Launch Bot**: Click "Launch Bot & Start Transcribing"
-   - The bot will join the meeting (may take up to 1 minute)
-   - Status updates will show the bot's progress
-
-4. **View Transcripts**: Real-time transcripts appear in the transcript area with:
-   - Timestamp
-   - Speaker name
-   - Transcribed text
-
-5. **Analyze Conversation**: Click "Analyze Conversation" to:
-   - Extract key topics and their importance
-   - Identify decisions made during the meeting
-   - Find action items and assignees
-   - Analyze speaker engagement levels
-
-6. **Create Miro Diagram**: Click "Create Miro Diagram" to:
-   - Generate a visual diagram in Miro
-   - Display topics as sticky notes
-   - Color-code by importance
-   - Get a direct link to the Miro board
-
-7. **Leave Meeting**: Click "Leave Meeting" to make the bot exit
 
 ## Architecture
 
-### Frontend (`index.html`)
-- Single-page application with vanilla JavaScript
-- Server-Sent Events (SSE) for real-time updates
-- LocalStorage for persisting meeting URLs
-- Real-time status indicators and transcript display
+### Backend Structure
 
-### Backend (`app.py`)
-- **Flask** web framework with AI integration
-- **Core Endpoints**:
-  - `POST /launch` - Creates a bot via Attendee API
-  - `POST /webhook` - Receives Attendee webhooks (verified with HMAC-SHA256)
-  - `GET /stream` - SSE endpoint for real-time updates to browsers
-  - `POST /leave/<bot_id>` - Makes bot leave the meeting
-  - `GET /` - Serves the web interface
-- **AI Analysis Endpoints**:
-  - `POST /analyze-conversation/<bot_id>` - Analyzes conversation using Gemini AI
-  - `POST /create-diagram/<bot_id>` - Creates Miro diagram from analysis
-  - `GET /conversation-status/<bot_id>` - Gets conversation buffer status
-- **Features**:
-  - Conversation buffering system (stores last 50 transcripts)
-  - Thread-safe analysis with locks
-  - Gemini AI integration for conversation analysis
-  - Miro API integration for diagram creation
+- **Config**: Centralized configuration management with environment-based settings
+- **Models**: Data structures for conversation buffering and session management
+- **Services**: External API integrations (Attendee, Gemini, Miro) with proper error handling
+- **Routes**: Organized API endpoints with clear separation of concerns
 
-## Bot States
+### Frontend Structure
 
-The bot progresses through these states:
-- `ready` - Bot created, preparing to join
-- `joining` - Attempting to join the meeting
-- `waiting_room` - In meeting waiting room (if enabled)
-- `joined_not_recording` - In meeting but not recording yet
-- `joined_recording` - Actively recording and transcribing
-- `leaving` - Exiting the meeting
-- `post_processing` - Processing final data after leaving
-- `ended` - Bot session complete
-- `fatal_error` - An error occurred
+- **Modular JavaScript**: Separated into logical modules (app, analysis, miro, utils)
+- **CSS Organization**: Centralized styling with clear component separation
+- **Template System**: Jinja2 templates for better maintainability
 
-## Troubleshooting
+### Key Improvements
 
-### Bot Won't Join
-- Verify meeting URL is correct and active
-- Check Attendee logs for errors
-- Ensure bot has permission to join (not blocked by org policies)
+1. **Separation of Concerns**: Each module has a single responsibility
+2. **Error Handling**: Proper exception handling throughout the application
+3. **Configuration Management**: Environment-based configuration
+4. **Code Organization**: Clear directory structure and naming conventions
+5. **Maintainability**: Modular code that's easy to understand and modify
 
-### No Transcripts Appearing
-- Verify webhook URL is accessible from Attendee instance
-- Ensure `transcript.update` trigger is enabled in webhook settings
-- Check Flask console for webhook receipt
+## API Endpoints
 
-### Connection Issues
-- **Webhook not receiving data**: Ensure ngrok is running and pointing to port 5005:
-  ```bash
-  ngrok http 5005
-  ```
+- `POST /api/launch` - Launch a transcription bot
+- `POST /api/leave/<bot_id>` - Make bot leave meeting
+- `GET /api/transcripts/<bot_id>` - Get meeting transcripts
+- `GET /api/bot-status/<bot_id>` - Get bot status
+- `POST /api/analyze-conversation/<bot_id>` - Analyze conversation with AI
+- `POST /api/create-diagram/<bot_id>` - Create Miro diagram from analysis
+- `GET /api/miro-board-info` - Get Miro board information
+- `GET /api/conversation-status/<bot_id>` - Get conversation buffer status
 
-## Acknowledgments
+## Development
 
-Built with [Attendee](https://github.com/attendee-labs/attendee) - the open-source meeting bot API.
+The application follows Flask best practices with:
+- Blueprint-based routing
+- Application factory pattern
+- Proper error handling
+- Environment-based configuration
+- Modular frontend architecture

@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WhisperBoard - AI Meeting Assistant</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Main Content -->
+    <main class="main-content">
+        <!-- Top Controls -->
+        <div class="top-controls">
+            <div class="app-title">
+                <h1>WhisperBoard</h1>
+            </div>
+            
+            <div class="meeting-controls">
+                <div class="meeting-input-group">
+                    <input id="meetingUrl" type="url" placeholder="Enter Google Meet URL..." />
+                    <button id="startBtn" class="btn btn-primary">Launch Bot</button>
+                    <button id="leaveBtn" class="btn btn-secondary" style="display:none;">Leave Meeting</button>
+                </div>
+                
+                <div class="status-indicator">
+                    <div class="status-dot" id="statusDot"></div>
+                    <span id="statusValue" class="status-value">Not started</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Warning Banners -->
+        <div id="zoomBanner" class="banner banner-warning" style="display:none;">
+            <span class="banner-icon">📹</span>
+            <div class="banner-content">
+                <strong>Warning:</strong> You need to add Zoom and Deepgram credentials to join Zoom meetings.
+                <a href="https://www.loom.com/share/7cbd3eab1bc4438fb1badcb3787996d6?sid=da6a46af-19e5-4196-9bfb-07152e6454fb" target="_blank">Watch this video</a> 
+                or try a Google Meet meeting instead.
+            </div>
+        </div>
+        
+        <div id="joiningBanner" class="banner banner-info" style="display:none;">
+            <span class="banner-icon">⏱️</span> It can take up to one minute for the bot to join the meeting
+        </div>
+        
+        <!-- Content Panels -->
+        <div class="content-panels">
+            <!-- Left Panel: Conversation (1/3) -->
+            <section class="panel panel-transcriptions">
+                <div class="panel-header">
+                    <h2 class="panel-title">Conversation</h2>
+                    <div class="panel-actions">
+                        <button id="analyzeBtn" class="btn btn-sm btn-outline">Analyze</button>
+                        <button id="createDiagramBtn" class="btn btn-sm btn-primary">Create Diagram</button>
+                    </div>
+                </div>
+                
+                <!-- Tab Navigation -->
+                <div class="tab-navigation">
+                    <button class="tab-btn active" data-tab="transcript">Live Transcript</button>
+                    <button class="tab-btn" data-tab="analysis">Analysis</button>
+                </div>
+                
+                <!-- Tab Content -->
+                <div class="tab-content">
+                    <!-- Live Transcript Tab -->
+                    <div id="transcriptTab" class="tab-panel active">
+                        <div class="transcript-container">
+                            <div id="log" class="transcript-log"></div>
+                        </div>
+                    </div>
+                    
+                    <!-- Analysis Tab -->
+                    <div id="analysisTab" class="tab-panel">
+                        <div class="analysis-container">
+                            <div id="analysisResults" class="analysis-results" style="display: none;">
+                                <h3>Analysis Results</h3>
+                                <div id="analysisContent" class="analysis-content"></div>
+                            </div>
+                            <div id="analysisStatus" class="analysis-status"></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+        <!-- Right Panel: Miro Board (2/3) -->
+        <section class="panel panel-miro">
+            <div class="panel-header">
+                <h2 class="panel-title">Miro Board</h2>
+                <div class="panel-actions">
+                    <button id="loadMiroBtn" class="btn btn-sm btn-primary">Load Board</button>
+                    <button id="refreshMiroBtn" class="btn btn-sm btn-outline" style="display: none;">Refresh</button>
+                </div>
+            </div>
+            
+            <div class="miro-content">
+                <div id="miroStatus" class="miro-status"></div>
+                
+                <div id="miroBoardContainer" class="miro-container" style="display: none;">
+                    <iframe id="miroBoard" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>
+                </div>
+                
+                <div id="miroError" class="miro-error" style="display: none;"></div>
+                
+                <div class="miro-placeholder" id="miroPlaceholder">
+                    <div class="placeholder-content">
+                        <div class="placeholder-icon">🎨</div>
+                        <h3>No Board Loaded</h3>
+                        <p>Click "Load Board" to connect your Miro board and visualize meeting insights.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+        </div>
+    </main>
+
+    <!-- JavaScript files -->
+    <script src="/static/js/utils.js"></script>
+    <script src="/static/js/app.js"></script>
+    <script src="/static/js/analysis.js"></script>
+    <script src="/static/js/miro.js"></script>
+</body>
+</html>
