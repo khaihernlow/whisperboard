@@ -2,6 +2,7 @@
 API routes for the application
 """
 import json
+import os
 import hmac
 import hashlib
 import base64
@@ -20,6 +21,9 @@ api_bp = Blueprint('api', __name__)
 subscribers: List[queue.Queue] = []
 bot_sessions: Dict[str, BotSession] = {}
 sessions_lock = threading.Lock()
+
+# Demo conversations directory
+DEMO_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'demo_conversations'))
 
 # Initialize services
 attendee_service = AttendeeService()
@@ -49,6 +53,26 @@ def _sign_payload(payload: Dict) -> str:
     digest = hmac.new(secret, payload_json.encode(), hashlib.sha256).digest()
     return base64.b64encode(digest).decode()
 
+def _safe_filename(name: str) -> str:
+    """Prevent path traversal; allow only basenames with .txt"""
+    base = os.path.basename(name)
+    if not base.endswith('.txt'):
+        base = base + '.txt'
+    return base
+
+def _get_or_create_board_id() -> str:
+    """Return the persistent Miro board id, creating it if missing."""
+    boards = miro_service.get_boards()
+    board_id = None
+    for board in boards:
+        if board.get('name') == 'Meeting Analysis Board':
+            board_id = board['id']
+            break
+    if not board_id:
+        board_data = miro_service.create_board()
+        board_id = board_data["id"]
+    return board_id
+
 @api_bp.route('/launch', methods=['POST'])
 def launch_bot():
     """Launch a bot for the meeting"""
@@ -59,6 +83,12 @@ def launch_bot():
 
     try:
         bot = attendee_service.create_bot(meeting_url)
+        # New meeting: clear the board to start fresh
+        try:
+            board_id = _get_or_create_board_id()
+            miro_service.clear_board_items(board_id)
+        except Exception:
+            pass
         return jsonify({"bot_id": bot["id"]}), 201
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -143,6 +173,59 @@ def get_transcripts(bot_id):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@api_bp.route('/demo/list')
+def list_demo_conversations():
+    """List available demo conversation files"""
+    try:
+        if not os.path.isdir(DEMO_DIR):
+            return jsonify({"files": []})
+        files = [f for f in os.listdir(DEMO_DIR) if f.endswith('.txt')]
+        return jsonify({"files": sorted(files)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@api_bp.route('/demo/load/<bot_id>', methods=['POST'])
+def load_demo_conversation(bot_id):
+    """Load a demo conversation file into the buffer and return status"""
+    try:
+        data = request.get_json(force=True)
+        filename = _safe_filename(data.get('filename', ''))
+        path = os.path.join(DEMO_DIR, filename)
+        if not os.path.isfile(path):
+            return jsonify({"error": "File not found"}), 404
+
+        session = get_or_create_bot_session(bot_id)
+        # Clear the board for demo loads to start fresh
+        try:
+            board_id = _get_or_create_board_id()
+            miro_service.clear_board_items(board_id)
+        except Exception:
+            pass
+        with open(path, 'r', encoding='utf-8') as f:
+            lines = f.read().splitlines()
+        # Expect format: "Speaker: text" per line; fall back to single-speaker if absent
+        ts = int(time.time() * 1000)
+        for i, line in enumerate(lines):
+            if not line.strip():
+                continue
+            if ':' in line:
+                speaker, text = line.split(':', 1)
+                speaker = speaker.strip()
+                text = text.strip()
+            else:
+                speaker = 'Demo'
+                text = line.strip()
+            transcript = {
+                'timestamp_ms': ts + i * 1000,
+                'speaker_name': speaker,
+                'transcription': {'transcript': text, 'confidence': 1.0}
+            }
+            session.conversation_buffer.add_transcript(transcript)
+            session.update_activity()
+        return jsonify({"success": True, "lines": len(lines)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @api_bp.route('/bot-status/<bot_id>')
 def get_bot_status(bot_id):
     """Get the current status of a bot"""
@@ -203,8 +286,7 @@ def create_diagram(bot_id):
                 board_data = miro_service.create_board()
                 board_id = board_data["id"]
             
-            # Clear existing items and create new diagram
-            miro_service.clear_board_items(board_id)
+            # Do not clear existing items; allow upsert/merge by similarity
             diagram_result = miro_service.create_diagram_from_analysis(board_id, analysis_result)
             
             return jsonify({
@@ -242,6 +324,16 @@ def get_miro_board_info():
             "embed_url": f"https://miro.com/app/embed/{board_id}/"
         })
         
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@api_bp.route('/miro/reset', methods=['POST'])
+def reset_miro_board():
+    """Clear the persistent board on demand"""
+    try:
+        board_id = _get_or_create_board_id()
+        miro_service.clear_board_items(board_id)
+        return jsonify({"success": True, "board_id": board_id})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

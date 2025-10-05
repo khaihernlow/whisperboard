@@ -1,0 +1,6 @@
+Khai: We’re testing GPT-4o vs Gemini for summarization.  
+Khai: GPT-4o handles nuance better, but Gemini is faster.  
+Khai: I’ll build a benchmark of 200 docs.  
+Khai: Then compare accuracy, latency, and cost.  
+Khai: If GPT-4o wins accuracy by 5%, we keep it.  
+Khai: Otherwise we may hybridize — use Gemini for drafts, GPT-4o for final. 

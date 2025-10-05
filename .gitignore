@@ -1,6 +1,9 @@
 venv
-env
 __pycache__/
 **/__pycache__/
 *.py[cod]
 *$py.class
+# Environment files
+.env
+.env.*
+!.env.example

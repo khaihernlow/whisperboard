@@ -6,8 +6,6 @@
  * Load Miro board
  */
 async function loadMiroBoard() {
-    loadMiroBtn.disabled = true;
-    loadMiroBtn.innerHTML = 'Loading...';
     miroStatus.textContent = "Getting board information...";
     miroError.style.display = "none";
     
@@ -36,8 +34,6 @@ async function loadMiroBoard() {
         miroError.style.display = "block";
         miroStatus.textContent = "Failed to load board";
     } finally {
-        loadMiroBtn.disabled = false;
-        loadMiroBtn.innerHTML = 'Load Board';
     }
 }
 
@@ -51,6 +47,34 @@ function refreshMiroBoard() {
     }
 }
 
+// Auto-load the board on DOM ready
+document.addEventListener('DOMContentLoaded', () => {
+    loadMiroBoard();
+});
+
 // Set up event handlers
-loadMiroBtn.onclick = loadMiroBoard;
 refreshMiroBtn.onclick = refreshMiroBoard;
+
+// Optional: reset board button handler if present
+document.addEventListener('DOMContentLoaded', () => {
+    const resetBtn = document.getElementById('resetMiroBtn');
+    if (resetBtn) {
+        resetBtn.onclick = async () => {
+            try {
+                resetBtn.disabled = true;
+                resetBtn.textContent = 'Resetting...';
+                const resp = await fetch('/api/miro/reset', { method: 'POST' });
+                if (!resp.ok) throw new Error(await resp.text());
+                // After reset, refresh iframe
+                refreshMiroBoard();
+                miroStatus.textContent = 'Board reset';
+            } catch (e) {
+                miroError.textContent = `Failed to reset board: ${e.message}`;
+                miroError.style.display = 'block';
+            } finally {
+                resetBtn.disabled = false;
+                resetBtn.textContent = 'Reset Board';
+            }
+        };
+    }
+});

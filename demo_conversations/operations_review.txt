@@ -1,0 +1,7 @@
+Tom: Our server downtime increased to 6 hours last month.  
+Lina: Mostly due to failed deploys.  
+Tom: Let’s add pre-deployment checks.  
+Lina: We can also schedule deploys after midnight.  
+Tom: Good — fewer active users then.  
+Lina: And we’ll track MTTR weekly.  
+Tom: I’ll automate the uptime report.  

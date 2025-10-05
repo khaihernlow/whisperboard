@@ -13,25 +13,28 @@ const joiningBanner = document.getElementById("joiningBanner");
 const zoomBanner = document.getElementById("zoomBanner");
 
 // Analysis controls
-const analyzeBtn = document.getElementById("analyzeBtn");
-const createDiagramBtn = document.getElementById("createDiagramBtn");
 const analysisStatus = document.getElementById("analysisStatus");
 const analysisResults = document.getElementById("analysisResults");
 const analysisContent = document.getElementById("analysisContent");
 
 // Miro controls
-const loadMiroBtn = document.getElementById("loadMiroBtn");
 const refreshMiroBtn = document.getElementById("refreshMiroBtn");
 const miroStatus = document.getElementById("miroStatus");
 const miroBoardContainer = document.getElementById("miroBoardContainer");
 const miroBoard = document.getElementById("miroBoard");
 const miroError = document.getElementById("miroError");
 
+// Demo controls
+const demoSelect = document.getElementById("demoSelect");
+const loadDemoBtn = document.getElementById("loadDemoBtn");
+
 // Application state
 let lastStatusTimestamp = null;
 let currentBotId = null;
 let pollingInterval = null;
 let lastTranscriptTime = 0;
+let analysisInterval = null;
+let isInMeeting = false;
 
 /**
  * Update bot status display
@@ -81,14 +84,25 @@ function updateStatus(state, eventType = null, timestamp = null) {
         btn.innerHTML = 'Launch Bot';
         currentBotId = null;
         stopPolling();
+        stopAutoAnalysis();
+        isInMeeting = false;
 
     } else if (state === "joined_recording") {
         statusValue.classList.add("status-running");
         statusDot.classList.add("active");
+        isInMeeting = true;
+        startAutoAnalysis();
     } else if (state === "ready" || state === "joining" || state === "joined_not_recording" || 
                state === "leaving" || state === "post_processing" || state === "waiting_room") {
         statusValue.classList.add("status-starting");
         statusDot.classList.add("starting");
+        if (state === "joined_not_recording") {
+            isInMeeting = true;
+            startAutoAnalysis();
+        } else {
+            isInMeeting = false;
+            stopAutoAnalysis();
+        }
     }
 }
 
@@ -163,6 +177,11 @@ async function pollTranscripts() {
                         log.textContent += `[${ts}] ${transcript.speaker_name}: ${transcript.transcription.transcript}\n`;
                         log.scrollTop = log.scrollHeight;
                         lastTranscriptTime = transcript.timestamp_ms;
+                        // Ensure auto-analysis runs once transcripts start flowing
+                        if (!isInMeeting) {
+                            isInMeeting = true;
+                        }
+                        startAutoAnalysis();
                     }
                 });
             }
@@ -190,6 +209,26 @@ function stopPolling() {
     if (pollingInterval) {
         clearInterval(pollingInterval);
         pollingInterval = null;
+    }
+}
+
+/**
+ * Auto analysis scheduler (every 30s while in meeting)
+ */
+function startAutoAnalysis() {
+    if (analysisInterval || !currentBotId) return;
+    analysisInterval = setInterval(() => {
+        if (!currentBotId || !isInMeeting) return;
+        if (typeof triggerAutoAnalysis === 'function') {
+            triggerAutoAnalysis();
+        }
+    }, 30000);
+}
+
+function stopAutoAnalysis() {
+    if (analysisInterval) {
+        clearInterval(analysisInterval);
+        analysisInterval = null;
     }
 }
 
@@ -225,6 +264,8 @@ btn.onclick = async () => {
         
         // Start polling for status and transcripts
         startPolling();
+        // Proactively start auto-analysis; status updates may be delayed
+        startAutoAnalysis();
     } else {
         alert("Failed: " + (await resp.text()));
         btn.disabled = false;
@@ -258,3 +299,48 @@ document.addEventListener('DOMContentLoaded', initTabs);
 
 // Set up event handlers
 leaveBtn.onclick = leaveBot;
+
+// Demo helpers
+async function initDemoList() {
+    try {
+        const resp = await fetch('/api/demo/list');
+        if (!resp.ok) return;
+        const data = await resp.json();
+        if (Array.isArray(data.files) && data.files.length) {
+            demoSelect.innerHTML = data.files.map(f => `<option value="${f}">${f}</option>`).join('');
+            demoSelect.style.display = 'inline-flex';
+            loadDemoBtn.style.display = 'inline-flex';
+        }
+    } catch (e) { /* ignore */ }
+}
+
+async function loadSelectedDemo() {
+    if (!currentBotId) {
+        // Create a synthetic bot id if needed for buffer scoping
+        currentBotId = 'demo-' + Math.random().toString(36).slice(2, 8);
+    }
+    const filename = demoSelect.value;
+    if (!filename) return;
+    const resp = await fetch(`/api/demo/load/${currentBotId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename })
+    });
+    if (resp.ok) {
+        // Render into transcript log for UX
+        const status = await resp.json();
+        log.textContent += `\n[Demo] Loaded ${filename} (${status.lines} lines)\n`;
+        log.scrollTop = log.scrollHeight;
+        // Trigger analysis immediately
+        if (typeof analyzeConversation === 'function') {
+            analyzeConversation();
+        }
+    } else {
+        alert('Failed to load demo conversation');
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    initDemoList();
+    if (loadDemoBtn) loadDemoBtn.onclick = loadSelectedDemo;
+});

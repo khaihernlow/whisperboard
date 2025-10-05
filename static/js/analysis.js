@@ -11,8 +11,10 @@ async function analyzeConversation() {
         return;
     }
     
-    analyzeBtn.disabled = true;
-    analyzeBtn.textContent = "Analyzing...";
+    if (typeof analyzeBtn !== 'undefined' && analyzeBtn) {
+        analyzeBtn.disabled = true;
+        analyzeBtn.textContent = "Analyzing...";
+    }
     analysisStatus.textContent = "Analyzing conversation with Gemini AI...";
     
     try {
@@ -25,8 +27,11 @@ async function analyzeConversation() {
         
         if (resp.ok && !result.error) {
             displayAnalysisResults(result);
-            analysisStatus.textContent = "Analysis completed successfully!";
+            analysisStatus.textContent = "Analysis completed successfully! Creating diagram...";
             analysisStatus.style.color = "#28a745";
+
+            // Auto-create Miro diagram after successful analysis
+            await autoCreateDiagramAndRefresh(result);
         } else {
             analysisStatus.textContent = `Analysis failed: ${result.error || 'Unknown error'}`;
             analysisStatus.style.color = "#dc3545";
@@ -35,13 +40,15 @@ async function analyzeConversation() {
         analysisStatus.textContent = `Analysis failed: ${error.message}`;
         analysisStatus.style.color = "#dc3545";
     } finally {
-        analyzeBtn.disabled = false;
-        analyzeBtn.textContent = "Analyze";
+        if (typeof analyzeBtn !== 'undefined' && analyzeBtn) {
+            analyzeBtn.disabled = false;
+            analyzeBtn.textContent = "Analyze";
+        }
     }
 }
 
 /**
- * Create Miro diagram from analysis
+ * Create Miro diagram from analysis (manual trigger - no longer exposed in UI)
  */
 async function createMiroDiagram() {
     if (!currentBotId) {
@@ -49,8 +56,10 @@ async function createMiroDiagram() {
         return;
     }
     
-    createDiagramBtn.disabled = true;
-    createDiagramBtn.textContent = "Creating...";
+    if (typeof createDiagramBtn !== 'undefined' && createDiagramBtn) {
+        createDiagramBtn.disabled = true;
+        createDiagramBtn.textContent = "Creating...";
+    }
     analysisStatus.textContent = "Creating Miro diagram...";
     
     try {
@@ -80,13 +89,7 @@ async function createMiroDiagram() {
                 displayAnalysisResults(result.analysis);
             }
             
-            // Auto-refresh the embedded board if it's loaded
-            if (miroBoardContainer.style.display !== "none" && miroBoard.src) {
-                setTimeout(() => {
-                    refreshMiroBoard();
-                    miroStatus.textContent = "Board updated with new analysis";
-                }, 2000); // Wait 2 seconds for the API to process
-            }
+            // No iframe refresh needed; Miro updates shortly on its own
         } else {
             const errorMsg = result.diagram?.error || result.error || 'Unknown error';
             analysisStatus.textContent = `Diagram creation failed: ${errorMsg}`;
@@ -96,8 +99,49 @@ async function createMiroDiagram() {
         analysisStatus.textContent = `Diagram creation failed: ${error.message}`;
         analysisStatus.style.color = "#dc3545";
     } finally {
-        createDiagramBtn.disabled = false;
-        createDiagramBtn.textContent = "Create Diagram";
+        if (typeof createDiagramBtn !== 'undefined' && createDiagramBtn) {
+            createDiagramBtn.disabled = false;
+            createDiagramBtn.textContent = "Create Diagram";
+        }
+    }
+}
+
+/**
+ * Automatically create diagram and load/refresh Miro board
+ */
+async function autoCreateDiagramAndRefresh(latestAnalysis) {
+    try {
+        analysisStatus.textContent = "Creating Miro diagram...";
+        const resp = await fetch(`/api/create-diagram/${currentBotId}`, {
+            method: "POST",
+            headers: {"Content-Type": "application/json"}
+        });
+
+        const result = await resp.json();
+
+        if (resp.ok && result.diagram && result.diagram.success) {
+            analysisStatus.textContent = "Miro diagram created successfully!";
+            analysisStatus.style.color = "#28a745";
+
+            if (result.analysis && !result.analysis.error) {
+                displayAnalysisResults(result.analysis);
+            } else if (latestAnalysis) {
+                displayAnalysisResults(latestAnalysis);
+            }
+
+            // Load board if not already visible; avoid forced refreshes
+            if (miroBoardContainer.style.display === "none" || !miroBoard.src) {
+                await loadMiroBoard();
+                miroStatus.textContent = "Board loaded";
+            }
+        } else {
+            const errorMsg = result.diagram?.error || result.error || 'Unknown error';
+            analysisStatus.textContent = `Diagram creation failed: ${errorMsg}`;
+            analysisStatus.style.color = "#dc3545";
+        }
+    } catch (error) {
+        analysisStatus.textContent = `Diagram creation failed: ${error.message}`;
+        analysisStatus.style.color = "#dc3545";
     }
 }
 
@@ -106,46 +150,69 @@ async function createMiroDiagram() {
  */
 function displayAnalysisResults(analysis) {
     let html = "<div style='font-size: 0.9em;'>";
-    
+
+    if (analysis.summary && (analysis.summary.frame_name || analysis.summary.blurb)) {
+        html += `<h4>🎯 ${analysis.summary.frame_name || 'Conversation'}</h4>`;
+        if (analysis.summary.blurb) {
+            html += `<p>${analysis.summary.blurb}</p>`;
+        }
+    }
+
     if (analysis.topics && analysis.topics.length > 0) {
-        html += "<h4>📋 Key Topics</h4><ul>";
-        analysis.topics.slice(0, 5).forEach(topic => {
-            html += `<li><strong>${topic.name}</strong> (${Math.round(topic.importance * 100)}% important)<br><small>${topic.description || ''}</small></li>`;
+        html += "<h4>📋 Topics</h4><ul>";
+        analysis.topics.slice(0, 6).forEach(t => {
+            const name = t.label || t.name || 'Topic';
+            const imp = typeof t.importance === 'number' ? ` (${Math.round(t.importance*100)}%)` : '';
+            html += `<li><strong>${name}</strong>${imp}<br><small>${t.description || ''}</small></li>`;
         });
         html += "</ul>";
     }
-    
+
+    if (analysis.insights && analysis.insights.length > 0) {
+        html += "<h4>🧠 Insights</h4><ul>";
+        analysis.insights.slice(0, 6).forEach(i => {
+            const ev = (i.evidence && i.evidence.length) ? ` <small>(${i.evidence.slice(0,2).join(', ')})</small>` : '';
+            html += `<li><strong>${i.label || 'Insight'}</strong>${ev}</li>`;
+        });
+        html += "</ul>";
+    }
+
     if (analysis.decisions && analysis.decisions.length > 0) {
-        html += "<h4>✅ Decisions Made</h4><ul>";
-        analysis.decisions.slice(0, 3).forEach(decision => {
-            html += `<li><strong>${decision.title}</strong><br><small>${decision.description || ''}</small></li>`;
+        html += "<h4>✅ Decisions</h4><ul>";
+        analysis.decisions.slice(0, 5).forEach(d => {
+            const why = (d.rationale && d.rationale.length) ? ` <small>Why: ${d.rationale.slice(0,2).join(', ')}</small>` : '';
+            html += `<li><strong>${d.label || d.title || 'Decision'}</strong>${why}</li>`;
         });
         html += "</ul>";
     }
-    
-    if (analysis.action_items && analysis.action_items.length > 0) {
-        html += "<h4>📝 Action Items</h4><ul>";
-        analysis.action_items.slice(0, 5).forEach(item => {
-            const priority = item.priority === 'high' ? '🔴' : item.priority === 'medium' ? '🟡' : '🟢';
-            html += `<li>${priority} <strong>${item.task}</strong> (${item.assignee || 'Unassigned'})</li>`;
+
+    if (analysis.actions && analysis.actions.length > 0) {
+        html += "<h4>📝 Actions</h4><ul>";
+        analysis.actions.slice(0, 6).forEach(a => {
+            const owner = a.owner || 'TBD';
+            const due = a.due || 'TBD';
+            html += `<li><strong>${a.label || 'Action'}</strong> <small>(${owner} · ${due})</small></li>`;
         });
         html += "</ul>";
     }
-    
-    if (analysis.speakers && analysis.speakers.length > 0) {
-        html += "<h4>👥 Speakers</h4><ul>";
-        analysis.speakers.forEach(speaker => {
-            html += `<li><strong>${speaker.name}</strong> - ${speaker.role || 'Participant'} (${Math.round(speaker.engagement * 100)}% engaged)</li>`;
+
+    if (analysis.relationships && analysis.relationships.length > 0) {
+        html += "<h4>🔗 Relationships</h4><ul>";
+        analysis.relationships.slice(0, 8).forEach(r => {
+            html += `<li><code>${r.from}</code> → <code>${r.to}</code> <small>(${r.type || 'rel'})</small></li>`;
         });
         html += "</ul>";
     }
-    
+
     html += "</div>";
-    
+
     analysisContent.innerHTML = html;
     analysisResults.style.display = "block";
 }
 
-// Set up event handlers
-analyzeBtn.onclick = analyzeConversation;
-createDiagramBtn.onclick = createMiroDiagram;
+// Expose a trigger function for scheduled auto-analysis
+async function triggerAutoAnalysis() {
+    if (!currentBotId) return;
+    // Only run if transcript likely updated since last run is not strictly necessary; backend can decide
+    await analyzeConversation();
+}

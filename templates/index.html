@@ -51,9 +51,13 @@
                 <div class="panel-header">
                     <h2 class="panel-title">Conversation</h2>
                     <div class="panel-actions">
-                        <button id="analyzeBtn" class="btn btn-sm btn-outline">Analyze</button>
-                        <button id="createDiagramBtn" class="btn btn-sm btn-primary">Create Diagram</button>
                     </div>
+                </div>
+                
+                <!-- Demo Controls placed under the header -->
+                <div class="demo-controls">
+                    <select id="demoSelect" class="select" style="min-width:200px; display:none;"></select>
+                    <button id="loadDemoBtn" class="btn btn-sm btn-outline" style="display:none;">Load Demo</button>
                 </div>
                 
                 <!-- Tab Navigation -->
@@ -89,8 +93,8 @@
             <div class="panel-header">
                 <h2 class="panel-title">Miro Board</h2>
                 <div class="panel-actions">
-                    <button id="loadMiroBtn" class="btn btn-sm btn-primary">Load Board</button>
-                    <button id="refreshMiroBtn" class="btn btn-sm btn-outline" style="display: none;">Refresh</button>
+                    <button id="resetMiroBtn" class="btn btn-sm btn-danger">Reset Board</button>
+                    <button id="refreshMiroBtn" class="btn btn-sm btn-outline">Refresh</button>
                 </div>
             </div>
             

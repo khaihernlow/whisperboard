@@ -107,31 +107,45 @@ class GeminiService:
         self.client = genai.Client(api_key=self.api_key) if self.api_key else None
     
     def analyze_conversation(self, conversation_text: str) -> Dict:
-        """Analyze conversation using Gemini AI"""
+        """Analyze conversation using Gemini AI to produce structured map."""
         if not self.client:
             return {"error": "Gemini API key not configured"}
         
         prompt = f"""
-        Analyze this meeting conversation and create a structured diagram representation. 
-        Focus on:
-        1. Key topics discussed
-        2. Decisions made
-        3. Action items
-        4. Relationships between speakers and topics
-        5. Timeline of important points
-        
+        From the conversation below, produce a conversation map suitable for a Miro board.
+        Goals: Show reasoning flow: why → how → what next. Keep total nodes 8–15.
+
+        STRICT JSON OUTPUT ONLY with this schema:
+        {{
+          "topics": [
+            {{"id": "t1", "label": "Offline mode feature", "description": "central idea", "importance": 0.0_to_1.0 }}
+          ],
+          "insights": [
+            {{"id": "i1", "label": "Users have poor connectivity", "evidence": ["quotes", "metrics"], "confidence": 0.0_to_1.0, "supports": ["t1"] }}
+          ],
+          "decisions": [
+            {{"id": "d1", "label": "Pilot with 20 users", "rationale": ["why"], "confidence": 0.0_to_1.0, "based_on": ["t1","i1"] }}
+          ],
+          "actions": [
+            {{"id": "a1", "label": "Alice – implement API caching", "owner": "Alice", "due": "YYYY-MM-DD or null", "depends_on": ["d1"], "confidence": 0.0_to_1.0 }}
+          ],
+          "relationships": [
+            {{"from": "t1", "to": "i1", "type": "leads_to|supports|results_in|blocks", "strength": 0.0_to_1.0 }}
+          ],
+          "summary": {{
+            "frame_name": "<Meeting/Conversation Name> – <Time>",
+            "blurb": "1-2 sentence summary of what was achieved"
+          }}
+        }}
+
+        Behavioral rules:
+        - Merge duplicates; prefer single canonical labels.
+        - Every decision must have at least one incoming relationship from a topic/insight.
+        - Prefer concise labels; put details into description/rationale/evidence.
+        - Keep nodes 8–15 max total.
+
         Conversation:
         {conversation_text}
-        
-        Return a JSON response with this structure:
-        {{
-            "topics": [{{"name": "topic_name", "importance": 0.8, "description": "brief description"}}],
-            "decisions": [{{"title": "decision_title", "description": "details", "timestamp": "when discussed"}}],
-            "action_items": [{{"task": "action description", "assignee": "person", "priority": "high/medium/low"}}],
-            "speakers": [{{"name": "speaker_name", "role": "inferred role", "engagement": 0.7}}],
-            "relationships": [{{"from": "speaker1", "to": "speaker2", "type": "collaboration/discussion", "strength": 0.8}}],
-            "timeline": [{{"event": "description", "timestamp": "time", "importance": 0.6}}]
-        }}
         """
         
         try:
@@ -216,7 +230,7 @@ class MiroService:
         return response.json().get('data', [])
     
     def get_board_items(self, board_id: str) -> list:
-        """Get all items from a board"""
+        """Get all items from a board (single page)."""
         if not self.access_token:
             raise Exception("Miro access token not configured")
         
@@ -234,19 +248,23 @@ class MiroService:
         return response.json().get('data', [])
     
     def clear_board_items(self, board_id: str) -> None:
-        """Clear all items from a board"""
-        items = self.get_board_items(board_id)
-        
-        for item in items:
-            item_id = item.get('id')
-            if item_id:
-                requests.delete(
+        """Clear all items from a board. Handles pagination by looping until empty."""
+        while True:
+            items = self.get_board_items(board_id)
+            if not items:
+                break
+            for item in items:
+                item_id = item.get('id')
+                if not item_id:
+                    continue
+                resp = requests.delete(
                     f"{self.base_url}/boards/{board_id}/items/{item_id}",
                     headers={
                         "Authorization": f"Bearer {self.access_token}",
                         "Content-Type": "application/json"
                     }
                 )
+                # Best-effort; continue even on non-2xx
     
     def create_sticky_note(self, board_id: str, content: str, position: Dict, style: Dict = None) -> Dict:
         """Create a sticky note on the board"""
@@ -353,283 +371,156 @@ class MiroService:
         return response.json()
     
     def create_diagram_from_analysis(self, board_id: str, analysis_data: Dict) -> Dict:
-        """Create a comprehensive Miro diagram with arrows, flow, and useful visualizations"""
+        """Create a Miro conversation map using lanes and upsert semantics."""
         items_created = []
         connectors_created = []
-        
-        # Create main title
-        title = self.create_sticky_note(
-            board_id,
-            "<p><strong>🎯 MEETING ANALYSIS DASHBOARD</strong></p><p>Generated from conversation insights</p>",
-            {"x": 0, "y": -400},
-            {"fillColor": "dark_blue", "textAlign": "center", "textAlignVertical": "top"}
-        )
-        items_created.append(title)
-        
-        # Create section headers with visual separators
-        sections = {
-            'topics': {'x': 0, 'y': -200, 'title': '📋 KEY TOPICS', 'color': 'violet'},
-            'decisions': {'x': 1500, 'y': -200, 'title': '✅ DECISIONS', 'color': 'light_green'},
-            'actions': {'x': 3000, 'y': -200, 'title': '📝 ACTION ITEMS', 'color': 'orange'},
-            'speakers': {'x': 4500, 'y': -200, 'title': '👥 PARTICIPANTS', 'color': 'light_blue'}
+
+        def _normalize_label(text: str) -> str:
+            return (text or "").strip().lower()
+
+        def _similar(a: str, b: str) -> float:
+            a_tokens = set(_normalize_label(a).split())
+            b_tokens = set(_normalize_label(b).split())
+            if not a_tokens or not b_tokens:
+                return 0.0
+            inter = len(a_tokens & b_tokens)
+            union = len(a_tokens | b_tokens)
+            return inter / union
+
+        existing_items = self.get_board_items(board_id)
+
+        def _find_similar(content_text: str, threshold: float = 0.7) -> Optional[Dict]:
+            for it in existing_items:
+                it_text = (it.get('data') or {}).get('content') or ''
+                # crude strip HTML tags
+                if _similar(content_text, it_text) >= threshold:
+                    return it
+            return None
+
+        def _html(text: str) -> str:
+            return f"<p><strong>{text}</strong></p>"
+
+        # Lanes X positions
+        lane_x = {
+            'topics': 0,
+            'insights': 800,
+            'decisions': 1600,
+            'actions': 2400,
         }
-        
-        section_headers = {}
-        for section_id, config in sections.items():
-            header = self.create_sticky_note(
-                board_id,
-                f"<p><strong>{config['title']}</strong></p>",
-                {"x": config['x'], "y": config['y']},
-                {"fillColor": config['color'], "textAlign": "center", "textAlignVertical": "top"}
-            )
-            items_created.append(header)
-            section_headers[section_id] = header
-        
-        # Create visual separators between sections
-        separator_positions = [750, 2250, 3750]
-        for i, x in enumerate(separator_positions):
-            separator = self.create_shape(
-                board_id,
-                "rectangle",
-                "",
-                {"x": x, "y": -100, "width": 8, "height": 2000},
-                {"fillColor": "#808080", "borderColor": "#808080"}
-            )
-            items_created.append(separator)
-        
-        # Add topics with importance-based sizing and positioning
-        topic_items = []
-        if "topics" in analysis_data:
-            # Sort topics by importance
-            sorted_topics = sorted(analysis_data["topics"][:12], 
-                                key=lambda x: x.get('importance', 0), reverse=True)
-            
-            for i, topic in enumerate(sorted_topics):
-                importance = topic.get('importance', 0)
-                
-                # Size based on importance
-                size_multiplier = 1 + (importance * 0.5)  # 1.0 to 1.5x size
-                
-                x = (i % 3) * 500 + 100
-                y = 100 + (i // 3) * 400
-                
-                # Color based on importance
-                if importance > 0.8:
-                    color = "red"
-                    emoji = "🔥"
-                elif importance > 0.6:
-                    color = "light_yellow"
-                    emoji = "⭐"
-                else:
-                    color = "light_blue"
-                    emoji = "💡"
-                
-                content = f"<p><strong>{emoji} {topic['name']}</strong></p><p>{topic.get('description', '')}</p><p><small>Importance: {int(importance * 100)}%</small></p>"
-                position = {"x": x, "y": y}
-                style = {
-                    "fillColor": color,
-                    "textAlign": "center",
-                    "textAlignVertical": "top"
-                }
-                
+
+        # Headers
+        headers = [
+            ('topics', '📋 Topics', 'light_yellow'),
+            ('insights', '🧠 Insights', 'light_blue'),
+            ('decisions', '✅ Decisions', 'light_green'),
+            ('actions', '📝 Actions', 'red'),
+        ]
+        for key, title, color in headers:
+            header_html = _html(title)
+            found = _find_similar(title, threshold=0.9)
+            if not found:
+                items_created.append(self.create_sticky_note(
+                    board_id, header_html, {"x": lane_x[key], "y": -200}, {"fillColor": color, "textAlign": "center"}
+                ))
+
+        # Helper to upsert sticky note
+        def upsert_sticky(label: str, details_html: str, color: str, x: int, y: int) -> Dict:
+            content = f"<p><strong>{label}</strong></p>{details_html}"
+            existing = _find_similar(label)
+            if existing:
+                # Update existing item content
                 try:
-                    sticky_note = self.create_sticky_note(board_id, content, position, style)
-                    items_created.append(sticky_note)
-                    topic_items.append(sticky_note)
-                except Exception as e:
-                    print(f"Failed to create topic sticky note: {e}")
-        
-        # Add decisions with timeline flow
-        decision_items = []
-        if "decisions" in analysis_data:
-            for i, decision in enumerate(analysis_data["decisions"][:8]):
-                x = 1500 + (i % 2) * 600
-                y = 100 + (i // 2) * 350
-                
-                # Add decision number for flow
-                decision_num = i + 1
-                content = f"<p><strong>✅ Decision #{decision_num}</strong></p><p><strong>{decision.get('title', 'Decision')}</strong></p><p>{decision.get('description', '')}</p>"
-                position = {"x": x, "y": y}
-                style = {
-                    "fillColor": "light_green",
-                    "textAlign": "center",
-                    "textAlignVertical": "top"
-                }
-                
-                try:
-                    sticky_note = self.create_sticky_note(board_id, content, position, style)
-                    items_created.append(sticky_note)
-                    decision_items.append(sticky_note)
-                except Exception as e:
-                    print(f"Failed to create decision sticky note: {e}")
-        
-        # Add action items with priority clustering and visual indicators
-        action_items = []
-        if "action_items" in analysis_data:
-            # Group by priority
-            high_priority = [a for a in analysis_data["action_items"] if a.get('priority') == 'high']
-            medium_priority = [a for a in analysis_data["action_items"] if a.get('priority') == 'medium']
-            low_priority = [a for a in analysis_data["action_items"] if a.get('priority') == 'low']
-            
-            priority_groups = [
-                (high_priority, "🔴 HIGH PRIORITY", "red", 3000),
-                (medium_priority, "🟡 MEDIUM PRIORITY", "light_yellow", 3000),
-                (low_priority, "🟢 LOW PRIORITY", "light_green", 3000)
-            ]
-            
-            for group_items, group_title, group_color, start_x in priority_groups:
-                if not group_items:
-                    continue
-                
-                # Add priority group header
-                group_header = self.create_sticky_note(
-                    board_id,
-                    f"<p><strong>{group_title}</strong></p>",
-                    {"x": start_x, "y": 50},
-                    {"fillColor": group_color, "textAlign": "center"}
-                )
-                items_created.append(group_header)
-                
-                # Add items in this priority group
-                for i, action in enumerate(group_items[:4]):  # Max 4 per group
-                    x = start_x + (i % 2) * 500
-                    y = 200 + (i // 2) * 300
-                    
-                    assignee = action.get('assignee', 'TBD')
-                    due_date = action.get('due_date', 'TBD')
-                    
-                    content = f"<p><strong>📋 {action.get('task', '')}</strong></p><p><strong>👤 Assignee:</strong> {assignee}</p><p><strong>📅 Due:</strong> {due_date}</p>"
-                    position = {"x": x, "y": y}
-                    style = {
-                        "fillColor": group_color,
-                        "textAlign": "center",
-                        "textAlignVertical": "top"
-                    }
-                    
-                    try:
-                        sticky_note = self.create_sticky_note(board_id, content, position, style)
-                        items_created.append(sticky_note)
-                        action_items.append(sticky_note)
-                    except Exception as e:
-                        print(f"Failed to create action sticky note: {e}")
-        
-        # Add speaker participation visualization
-        speaker_items = []
-        if "speakers" in analysis_data:
-            # Sort by engagement level
-            sorted_speakers = sorted(analysis_data["speakers"], 
-                                   key=lambda x: x.get('engagement', 0), reverse=True)
-            
-            for i, speaker in enumerate(sorted_speakers[:6]):
-                engagement = speaker.get('engagement', 0)
-                role = speaker.get('role', 'Participant')
-                
-                # Visual representation of engagement
-                engagement_bars = "█" * int(engagement * 10) + "░" * (10 - int(engagement * 10))
-                
-                x = 4500 + (i % 2) * 400
-                y = 100 + (i // 2) * 300
-                
-                content = f"<p><strong>👤 {speaker['name']}</strong></p><p><strong>Role:</strong> {role}</p><p><strong>Engagement:</strong> {int(engagement * 100)}%</p><p><small>{engagement_bars}</small></p>"
-                position = {"x": x, "y": y}
-                
-                # Color based on engagement
-                if engagement > 0.8:
-                    color = "light_green"
-                elif engagement > 0.5:
-                    color = "light_yellow"
-                else:
-                    color = "gray"
-                
-                style = {
-                    "fillColor": color,
-                    "textAlign": "center",
-                    "textAlignVertical": "top"
-                }
-                
-                try:
-                    sticky_note = self.create_sticky_note(board_id, content, position, style)
-                    items_created.append(sticky_note)
-                    speaker_items.append(sticky_note)
-                except Exception as e:
-                    print(f"Failed to create speaker sticky note: {e}")
-        
-        # Create flow arrows and connections
-        try:
-            # Connect topics to decisions (showing logical flow)
-            if topic_items and decision_items:
-                for i in range(min(3, len(topic_items), len(decision_items))):
-                    connector = self.create_connector(
-                        board_id,
-                        topic_items[i]['id'],
-                        decision_items[i]['id'],
-                        style={"strokeColor": "#007bff", "strokeWidth": 3, "strokeStyle": "normal"},
-                        caption="leads to"
-                    )
-                    connectors_created.append(connector)
-            
-            # Connect decisions to action items
-            if decision_items and action_items:
-                for i in range(min(2, len(decision_items), len(action_items))):
-                    connector = self.create_connector(
-                        board_id,
-                        decision_items[i]['id'],
-                        action_items[i]['id'],
-                        style={"strokeColor": "#28a745", "strokeWidth": 3, "strokeStyle": "normal"},
-                        caption="requires"
-                    )
-                    connectors_created.append(connector)
-            
-            # Connect section headers to their content
-            for section_id, header in section_headers.items():
-                target_items = []
-                if section_id == 'topics' and topic_items:
-                    target_items = topic_items[:1]
-                elif section_id == 'decisions' and decision_items:
-                    target_items = decision_items[:1]
-                elif section_id == 'actions' and action_items:
-                    target_items = action_items[:1]
-                elif section_id == 'speakers' and speaker_items:
-                    target_items = speaker_items[:1]
-                
-                if target_items:
-                    connector = self.create_connector(
-                        board_id,
-                        header['id'],
-                        target_items[0]['id'],
-                        style={"strokeColor": "#6c757d", "strokeWidth": 2, "strokeStyle": "dashed"}
-                    )
-                    connectors_created.append(connector)
-            
-            # Create a main flow arrow from topics → decisions → actions
-            if topic_items and decision_items and action_items:
-                # Create a curved flow line
-                flow_connector = self.create_connector(
-                    board_id,
-                    topic_items[0]['id'],
-                    action_items[0]['id'],
-                    style={"strokeColor": "#dc3545", "strokeWidth": 4, "strokeStyle": "curved"},
-                    caption="Meeting Flow"
-                )
-                connectors_created.append(flow_connector)
-                
-        except Exception as e:
-            print(f"Failed to create connectors: {e}")
-        
-        # Add summary statistics box
-        total_topics = len(analysis_data.get("topics", []))
-        total_decisions = len(analysis_data.get("decisions", []))
-        total_actions = len(analysis_data.get("action_items", []))
-        total_speakers = len(analysis_data.get("speakers", []))
-        
-        summary = self.create_sticky_note(
+                    return self.update_item(board_id, existing['id'], {
+                        "data": {"content": content},
+                        "position": {"x": x, "y": y},
+                        "style": {"fillColor": color, "textAlign": "left"}
+                    })
+                except Exception:
+                    pass
+            created = self.create_sticky_note(board_id, content, {"x": x, "y": y}, {"fillColor": color, "textAlign": "left"})
+            items_created.append(created)
+            return created
+
+        # Upsert methods
+        def color_for(kind: str) -> str:
+            return {
+                'topic': 'light_yellow',
+                'insight': 'light_blue',
+                'decision': 'light_green',
+                'action': 'red',
+            }.get(kind, 'gray')
+
+        id_to_item = {}
+
+        # Topics
+        for i, t in enumerate(analysis_data.get('topics', [])[:6]):
+            x = lane_x['topics']
+            y = 100 + i * 220
+            details = f"<p>{t.get('description','')}</p>"
+            node = upsert_sticky(t.get('label', t.get('name', 'Topic')), details, color_for('topic'), x, y)
+            id_to_item[t.get('id', f't{i}')] = node
+
+        # Insights
+        for i, ins in enumerate(analysis_data.get('insights', [])[:6]):
+            x = lane_x['insights']
+            y = 100 + i * 220
+            evidence = ins.get('evidence') or []
+            details = ""
+            if evidence:
+                details = f"<p><small>Evidence: {', '.join(evidence[:3])}</small></p>"
+            node = upsert_sticky(ins.get('label', 'Insight'), details, color_for('insight'), x, y)
+            id_to_item[ins.get('id', f'i{i}')] = node
+
+        # Decisions
+        for i, dec in enumerate(analysis_data.get('decisions', [])[:5]):
+            x = lane_x['decisions']
+            y = 100 + i * 220
+            rationale = dec.get('rationale') or []
+            details = ""
+            if rationale:
+                details = f"<p><small>Why: {', '.join(rationale[:3])}</small></p>"
+            node = upsert_sticky(dec.get('label', 'Decision'), details, color_for('decision'), x, y)
+            id_to_item[dec.get('id', f'd{i}')] = node
+
+        # Actions
+        for i, act in enumerate(analysis_data.get('actions', [])[:6]):
+            x = lane_x['actions']
+            y = 100 + i * 220
+            owner = act.get('owner') or 'TBD'
+            due = act.get('due') or 'TBD'
+            details = f"<p><small>Owner: {owner} · Due: {due}</small></p>"
+            node = upsert_sticky(act.get('label', 'Action'), details, color_for('action'), x, y)
+            id_to_item[act.get('id', f'a{i}')] = node
+
+        # Relationships to connectors
+        for rel in analysis_data.get('relationships', [])[:20]:
+            src = id_to_item.get(rel.get('from'))
+            dst = id_to_item.get(rel.get('to'))
+            if not src or not dst:
+                continue
+            strength = rel.get('strength', 0.5)
+            style = {
+                "strokeColor": "#333333",
+                "strokeWidth": 2 + int(2 * strength),
+                "strokeStyle": "dashed" if strength < 0.5 else "normal"
+            }
+            try:
+                connectors_created.append(self.create_connector(board_id, src['id'], dst['id'], style=style, caption=rel.get('type')))
+            except Exception:
+                pass
+
+        # Summary / frame label
+        summary = analysis_data.get('summary', {})
+        blurb = summary.get('blurb') or ""
+        frame_name = summary.get('frame_name') or "Conversation – Now"
+        title_note = self.create_sticky_note(
             board_id,
-            f"<p><strong>📊 MEETING SUMMARY</strong></p><p>Topics: {total_topics}</p><p>Decisions: {total_decisions}</p><p>Actions: {total_actions}</p><p>Speakers: {total_speakers}</p>",
-            {"x": 0, "y": 2000},
-            {"fillColor": "gray", "textAlign": "center", "textAlignVertical": "top"}
+            f"<p><strong>🎯 {frame_name}</strong></p><p>{blurb}</p>",
+            {"x": -200, "y": -400},
+            {"fillColor": "dark_blue", "textAlign": "left"}
         )
-        items_created.append(summary)
-        
+        items_created.append(title_note)
+
         return {
             "success": True,
             "board_id": board_id,
@@ -637,13 +528,21 @@ class MiroService:
             "embed_url": f"https://miro.com/app/embed/{board_id}/",
             "items_created": len(items_created),
             "connectors_created": len(connectors_created),
-            "visualization_features": [
-                "Section headers with visual separators",
-                "Importance-based topic sizing and coloring",
-                "Priority-clustered action items",
-                "Speaker engagement visualization",
-                "Flow arrows showing logical progression",
-                "Meeting summary statistics"
-            ],
             "timestamp": time.time()
         }
+
+    def update_item(self, board_id: str, item_id: str, payload: Dict) -> Dict:
+        """Update a generic board item (used for upsert)."""
+        if not self.access_token:
+            raise Exception("Miro access token not configured")
+        response = requests.patch(
+            f"{self.base_url}/boards/{board_id}/items/{item_id}",
+            headers={
+                "Authorization": f"Bearer {self.access_token}",
+                "Content-Type": "application/json"
+            },
+            json=payload
+        )
+        if response.status_code not in (200, 201):
+            raise Exception(f"Failed to update item: {response.text}")
+        return response.json()

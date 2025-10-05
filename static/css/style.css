@@ -178,6 +178,41 @@ body {
     font-size: 0.75rem;
 }
 
+/* Form Controls */
+.select {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-sm);
+    padding: 0.5rem 2rem 0.5rem 0.75rem; /* space for custom arrow */
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    cursor: pointer;
+    transition: var(--transition);
+    min-width: 200px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 20 20' fill='none'%3E%3Cpath d='M6 8l4 4 4-4' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.5rem center;
+    background-size: 12px 12px;
+}
+
+.select:hover {
+    border-color: var(--border-hover);
+}
+
+.select:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgb(99 102 241 / 0.1);
+}
+
+.panel-actions .select {
+    align-self: center;
+}
+
 /* Main Content */
 .main-content {
     padding: 1rem 1.5rem;
@@ -237,6 +272,25 @@ body {
 .panel-actions {
     display: flex;
     gap: 0.5rem;
+}
+
+/* Demo controls under Conversation header */
+.demo-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0 1.5rem 0.75rem 1.5rem;
+}
+
+/* Match select height to .btn.btn-sm inside demo controls */
+.demo-controls .select {
+    padding: 0.375rem 2rem 0.375rem 0.75rem;
+    font-size: 0.75rem;
+    line-height: 1.25rem;
+}
+
+.demo-controls .btn.btn-sm {
+    line-height: 1.25rem;
 }
 
 /* Tab Navigation */
@@ -316,6 +370,14 @@ body {
     word-wrap: break-word;
 }
 
+/* Ensure transcript area remains scrollable within panel without vertical growth */
+.panel-transcriptions .tab-content,
+.panel-transcriptions .tab-panel,
+.panel-transcriptions .transcript-container,
+.panel-transcriptions .transcript-log {
+    min-height: 0;
+}
+
 .transcript-log::-webkit-scrollbar {
     width: 6px;
 }
@@ -341,16 +403,21 @@ body {
     display: flex;
     flex-direction: column;
     min-height: 0;
-    overflow-y: auto;
+    overflow: hidden; /* prevent parent growth; inner results will scroll */
+    gap: 1rem; /* use gap instead of margins inside */
 }
 
 /* Analysis Results */
 .analysis-results {
-    margin-bottom: 1rem;
+    margin-bottom: 0;
     padding: 1rem;
     background: rgba(16, 185, 129, 0.05);
     border: 1px solid rgba(16, 185, 129, 0.2);
     border-radius: var(--border-radius);
+    flex: 1 1 auto;             /* take available space */
+    min-height: 0;              /* allow internal scrolling */
+    overflow-y: auto;           /* scroll within results */
+    max-height: 100%;           /* don't exceed container height */
 }
 
 .analysis-results h3 {
@@ -364,6 +431,7 @@ body {
     color: var(--text-secondary);
     font-size: 0.875rem;
     line-height: 1.5;
+    /* content flows normally; parent .analysis-results scrolls */
 }
 
 .analysis-status {
