@@ -143,6 +143,12 @@ class GeminiService:
         - Every decision must have at least one incoming relationship from a topic/insight.
         - Prefer concise labels; put details into description/rationale/evidence.
         - Keep nodes 8–15 max total.
+        - IMPORTANT: Only create relationships between adjacent categories. Allowed pairs are:
+          Topics ↔ Insights, Insights ↔ Decisions, Decisions ↔ Actions.
+          Do NOT create any other links (e.g., Topics → Decisions, Topics → Actions, Insights → Actions,
+          Actions → Insights/Topics, Decisions → Topics).
+        - Ensure each relationship's `from` and `to` IDs use the correct prefixes: topics start with "t",
+          insights with "i", decisions with "d", actions with "a".
 
         Conversation:
         {conversation_text}
@@ -296,26 +302,25 @@ class MiroService:
         
         return response.json()
     
-    def create_connector(self, board_id: str, start_item_id: str, end_item_id: str, 
-                        style: Dict = None, caption: str = None) -> Dict:
-        """Create a connector (arrow) between two items"""
+    def create_connector(self, board_id: str, start_item_id: str, end_item_id: str,
+                        style: Dict = None, caption: str = None, shape: str = "elbowed") -> Dict:
+        """Create a connector (arrow) between two items.
+        Uses Miro v2 connectors API with startItem/endItem and optional captions.
+        """
         if not self.access_token:
             raise Exception("Miro access token not configured")
         
         payload = {
-            "start": {
-                "item": {"id": start_item_id}
-            },
-            "end": {
-                "item": {"id": end_item_id}
-            }
+            "startItem": {"id": start_item_id},
+            "endItem": {"id": end_item_id},
+            "shape": shape
         }
         
         if style:
             payload["style"] = style
         
         if caption:
-            payload["caption"] = caption
+            payload["captions"] = [{"content": caption}]
         
         response = requests.post(
             f"{self.base_url}/boards/{board_id}/connectors",
@@ -326,7 +331,7 @@ class MiroService:
             json=payload
         )
         
-        if response.status_code != 201:
+        if response.status_code not in (200, 201):
             raise Exception(f"Failed to create connector: {response.text}")
         
         return response.json()
@@ -492,11 +497,38 @@ class MiroService:
             node = upsert_sticky(act.get('label', 'Action'), details, color_for('action'), x, y)
             id_to_item[act.get('id', f'a{i}')] = node
 
-        # Relationships to connectors
+        # Relationships to connectors (only adjacent categories; use elbowed shape)
+        def _category_of(node_id: str) -> str:
+            if not node_id:
+                return ""
+            if node_id.startswith('t'):
+                return 'topics'
+            if node_id.startswith('i'):
+                return 'insights'
+            if node_id.startswith('d'):
+                return 'decisions'
+            if node_id.startswith('a'):
+                return 'actions'
+            return ""
+
+        # Allow bidirectional links between adjacent categories
+        allowed_adjacent = {
+            ('topics', 'insights'), ('insights', 'topics'),
+            ('insights', 'decisions'), ('decisions', 'insights'),
+            ('decisions', 'actions'), ('actions', 'decisions')
+        }
+
         for rel in analysis_data.get('relationships', [])[:20]:
-            src = id_to_item.get(rel.get('from'))
-            dst = id_to_item.get(rel.get('to'))
+            from_id = rel.get('from')
+            to_id = rel.get('to')
+            src = id_to_item.get(from_id)
+            dst = id_to_item.get(to_id)
             if not src or not dst:
+                continue
+            src_cat = _category_of(from_id)
+            dst_cat = _category_of(to_id)
+            if (src_cat, dst_cat) not in allowed_adjacent:
+                # Skip non-adjacent connectors to avoid crossing lanes
                 continue
             strength = rel.get('strength', 0.5)
             style = {
@@ -505,7 +537,14 @@ class MiroService:
                 "strokeStyle": "dashed" if strength < 0.5 else "normal"
             }
             try:
-                connectors_created.append(self.create_connector(board_id, src['id'], dst['id'], style=style, caption=rel.get('type')))
+                connectors_created.append(self.create_connector(
+                    board_id,
+                    src['id'],
+                    dst['id'],
+                    style=style,
+                    caption=rel.get('type'),
+                    shape="elbowed"
+                ))
             except Exception:
                 pass
 
