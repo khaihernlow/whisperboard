@@ -1,15 +1,17 @@
-# Attendee Real-time Transcription Demo
+# Real-time Meeting Transcription with AI Analysis
 
-A web application that demonstrates real-time meeting transcription using the [Attendee](https://github.com/attendee-labs/attendee) open-source meeting bot API. This demo allows you to launch a bot that joins online meetings (Google Meet, Microsoft Teams, Zoom) and view the transcript in real-time.
-
-See a [quick video of how to install and use the app](https://www.loom.com/share/55cd2aa81b3d43f28c2cd179711b02fa?sid=09b37fc6-07d1-4685-aff5-cc52624608ef).
-
+A comprehensive web application that demonstrates real-time meeting transcription using the [Attendee](https://github.com/attendee-labs/attendee) open-source meeting bot API, enhanced with AI-powered conversation analysis and automatic diagram generation. This app launches a bot that joins online meetings (Google Meet, Microsoft Teams, Zoom), transcribes conversations in real-time, analyzes them using Google's Gemini AI, and creates visual diagrams in Miro.
 
 ## Features
 
 - 🤖 Launch meeting bots with a single click
 - 📝 Real-time transcription with speaker identification
 - 📹 Support for Google Meet, Microsoft Teams, and Zoom meetings
+- 🧠 AI-powered conversation analysis using Google Gemini
+- 📊 Automatic diagram generation in Miro
+- 📋 Key topics, decisions, and action items extraction
+- 👥 Speaker engagement analysis
+- 🔄 Real-time conversation buffering and analysis
 
 ## Prerequisites
 
@@ -17,11 +19,13 @@ See a [quick video of how to install and use the app](https://www.loom.com/share
 
 2. **Ngrok** (If using the cloud instance of Attendee): Since Attendee needs to send webhooks to your local application, you'll need [ngrok](https://ngrok.com/) to create a secure tunnel to your localhost. Ngrok is free for basic usage.
 
-2. **Python 3.7+**: This demo uses Flask and requires Python 3.7 or higher.
+3. **Python 3.7+**: This demo uses Flask and requires Python 3.7 or higher.
 
-4. **Attendee Credentials**: You'll need to create:
+4. **API Keys**: You'll need to create:
    - An API key from your Attendee dashboard
-   - A webhook URL that points to your locally running instance of this application via ngrok.
+   - A webhook URL that points to your locally running instance of this application via ngrok
+   - A Google Gemini API key for conversation analysis
+   - A Miro access token for diagram creation
 
 ## Setup Instructions
 
@@ -76,11 +80,40 @@ pip install -r requirements.txt
 
 ### 5. Set Environment Variables
 
+Create a `config.env` file in the project root (copy from `config.env.example`):
+
 ```bash
-export ATTENDEE_API_KEY="your-api-key"
-export WEBHOOK_SECRET="your-webhook-secret"
-export ATTENDEE_API_BASE="https://app.attendee.dev"  # Optional, defaults to https://app.attendee.dev
+cp config.env.example config.env
 ```
+
+Then edit `config.env` with your actual API keys:
+
+```bash
+# Attendee API Configuration
+ATTENDEE_API_KEY=your_attendee_api_key_here
+WEBHOOK_SECRET=your_webhook_secret_here
+ATTENDEE_API_BASE=https://app.attendee.dev
+
+# Gemini API Configuration (for conversation analysis)
+GEMINI_API_KEY=your_gemini_api_key_here
+
+# Miro API Configuration (for diagram creation)
+MIRO_ACCESS_TOKEN=your_miro_access_token_here
+```
+
+#### Getting API Keys:
+
+1. **Attendee API Key**: 
+   - Sign up at https://app.attendee.dev
+   - Go to API Keys section and create a new key
+
+2. **Gemini API Key**:
+   - Go to https://makersuite.google.com/app/apikey
+   - Create a new API key
+
+3. **Miro Access Token**:
+   - Go to https://developers.miro.com/
+   - Create a new app and generate an access token
 
 ### 6. Run the Application
 
@@ -108,7 +141,19 @@ The server will start on `http://localhost:5005`. You can access it locally, but
    - Speaker name
    - Transcribed text
 
-5. **Leave Meeting**: Click "Leave Meeting" to make the bot exit
+5. **Analyze Conversation**: Click "Analyze Conversation" to:
+   - Extract key topics and their importance
+   - Identify decisions made during the meeting
+   - Find action items and assignees
+   - Analyze speaker engagement levels
+
+6. **Create Miro Diagram**: Click "Create Miro Diagram" to:
+   - Generate a visual diagram in Miro
+   - Display topics as sticky notes
+   - Color-code by importance
+   - Get a direct link to the Miro board
+
+7. **Leave Meeting**: Click "Leave Meeting" to make the bot exit
 
 ## Architecture
 
@@ -119,13 +164,22 @@ The server will start on `http://localhost:5005`. You can access it locally, but
 - Real-time status indicators and transcript display
 
 ### Backend (`app.py`)
-- **Flask** web framework
-- **Endpoints**:
+- **Flask** web framework with AI integration
+- **Core Endpoints**:
   - `POST /launch` - Creates a bot via Attendee API
   - `POST /webhook` - Receives Attendee webhooks (verified with HMAC-SHA256)
   - `GET /stream` - SSE endpoint for real-time updates to browsers
   - `POST /leave/<bot_id>` - Makes bot leave the meeting
   - `GET /` - Serves the web interface
+- **AI Analysis Endpoints**:
+  - `POST /analyze-conversation/<bot_id>` - Analyzes conversation using Gemini AI
+  - `POST /create-diagram/<bot_id>` - Creates Miro diagram from analysis
+  - `GET /conversation-status/<bot_id>` - Gets conversation buffer status
+- **Features**:
+  - Conversation buffering system (stores last 50 transcripts)
+  - Thread-safe analysis with locks
+  - Gemini AI integration for conversation analysis
+  - Miro API integration for diagram creation
 
 ## Bot States
 

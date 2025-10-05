@@ -43,6 +43,18 @@
     ⏱️ It can take up to one minute for the bot to join the meeting
   </div>
 
+  <h2>Conversation Analysis</h2>
+  <div id="analysisControls" style="margin: 1rem 0; padding: 1rem; background: #f8f9fa; border-radius: 4px;">
+    <button id="analyzeBtn" style="margin-right: 10px; padding: 8px 16px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">Analyze Conversation</button>
+    <button id="createDiagramBtn" style="margin-right: 10px; padding: 8px 16px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer;">Create Miro Diagram</button>
+    <span id="analysisStatus" style="margin-left: 10px; color: #666;"></span>
+  </div>
+  
+  <div id="analysisResults" style="display: none; margin: 1rem 0; padding: 1rem; background: #e8f5e8; border-radius: 4px; border: 1px solid #28a745;">
+    <h3>Analysis Results</h3>
+    <div id="analysisContent"></div>
+  </div>
+
   <h2>Transcript</h2>
   <div id="log"></div>
 
@@ -54,9 +66,18 @@
   const statusValue   = document.getElementById("statusValue");
   const joiningBanner = document.getElementById("joiningBanner");
   const zoomBanner    = document.getElementById("zoomBanner");
+  
+  // Analysis controls
+  const analyzeBtn    = document.getElementById("analyzeBtn");
+  const createDiagramBtn = document.getElementById("createDiagramBtn");
+  const analysisStatus = document.getElementById("analysisStatus");
+  const analysisResults = document.getElementById("analysisResults");
+  const analysisContent = document.getElementById("analysisContent");
 
   let lastStatusTimestamp = null;
   let currentBotId = null;
+  let pollingInterval = null;
+  let lastTranscriptTime = 0;
 
   function updateStatus(state, eventType = null, timestamp = null) {
     // If we have a timestamp, check if it's newer than the last one
@@ -98,6 +119,7 @@
       btn.disabled = false;
       btn.textContent = "Launch Bot & Start Transcribing";
       currentBotId = null;
+      stopPolling();
 
     } else if (state === "joined_recording") {
       statusValue.classList.add("status-running");
@@ -112,6 +134,7 @@
     
     leaveBtn.disabled = true;
     leaveBtn.textContent = "Leaving...";
+    stopPolling(); // Stop polling when leaving
     
     try {
       const resp = await fetch(`/leave/${currentBotId}`, {
@@ -123,30 +146,75 @@
         alert("Failed to leave: " + (await resp.text()));
         leaveBtn.disabled = false;
         leaveBtn.textContent = "Leave Meeting";
+        startPolling(); // Restart polling if leave failed
+      } else {
+        // Successfully left, reset UI
+        btn.disabled = false;
+        btn.textContent = "Launch Bot & Start Transcribing";
+        currentBotId = null;
+        updateStatus("ended");
       }
-      // If successful, the webhook will update the status
     } catch (error) {
       alert("Failed to leave: " + error.message);
       leaveBtn.disabled = false;
       leaveBtn.textContent = "Leave Meeting";
+      startPolling(); // Restart polling if leave failed
     }
   }
 
-  // Open SSE stream immediately so we never miss a line
-  const evtSource = new EventSource("/stream");
-  evtSource.onmessage = (ev) => {
-    const message = JSON.parse(ev.data);
+  // Polling functions instead of SSE
+  async function pollBotStatus() {
+    if (!currentBotId) return;
     
-    if (message.type === "transcript") {
-      const data = message.data;
-      const ts   = new Date(data.timestamp_ms).toLocaleTimeString();
-      log.textContent += `[${ts}] ${data.speaker_name}: ${data.transcription.transcript}\n`;
-      log.scrollTop = log.scrollHeight;
-    } else if (message.type === "status") {
-      const data = message.data;
-      updateStatus(data.new_state, data.event_type, data.created_at);
+    try {
+      const resp = await fetch(`/bot-status/${currentBotId}`);
+      if (resp.ok) {
+        const botData = await resp.json();
+        updateStatus(botData.state);
+      }
+    } catch (error) {
+      console.error("Error polling bot status:", error);
     }
-  };
+  }
+
+  async function pollTranscripts() {
+    if (!currentBotId) return;
+    
+    try {
+      const resp = await fetch(`/transcripts/${currentBotId}`);
+      if (resp.ok) {
+        const data = await resp.json();
+        // The API returns an array directly, not wrapped in a 'transcripts' property
+        if (Array.isArray(data)) {
+          data.forEach(transcript => {
+            if (transcript.timestamp_ms > lastTranscriptTime) {
+              const ts = new Date(transcript.timestamp_ms).toLocaleTimeString();
+              log.textContent += `[${ts}] ${transcript.speaker_name}: ${transcript.transcription.transcript}\n`;
+              log.scrollTop = log.scrollHeight;
+              lastTranscriptTime = transcript.timestamp_ms;
+            }
+          });
+        }
+      }
+    } catch (error) {
+      console.error("Error polling transcripts:", error);
+    }
+  }
+
+  function startPolling() {
+    if (pollingInterval) clearInterval(pollingInterval);
+    pollingInterval = setInterval(async () => {
+      await pollBotStatus();
+      await pollTranscripts();
+    }, 2000); // Poll every 2 seconds
+  }
+
+  function stopPolling() {
+    if (pollingInterval) {
+      clearInterval(pollingInterval);
+      pollingInterval = null;
+    }
+  }
 
   btn.onclick = async () => {
     const url = meetingUrl.value.trim();
@@ -171,6 +239,9 @@
       leaveBtn.disabled = false;
       leaveBtn.textContent = "Leave Meeting";
       currentBotId = bot_id;
+      
+      // Start polling for status and transcripts
+      startPolling();
     } else {
       alert("Failed: " + (await resp.text()));
       btn.disabled = false;
@@ -180,6 +251,138 @@
   };
 
   leaveBtn.onclick = leaveBot;
+
+  // Analysis functions
+  async function analyzeConversation() {
+    if (!currentBotId) {
+      alert("No active bot. Please start a meeting first.");
+      return;
+    }
+    
+    analyzeBtn.disabled = true;
+    analyzeBtn.textContent = "Analyzing...";
+    analysisStatus.textContent = "Analyzing conversation with Gemini AI...";
+    
+    try {
+      const resp = await fetch(`/analyze-conversation/${currentBotId}`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"}
+      });
+      
+      const result = await resp.json();
+      
+      if (resp.ok && !result.error) {
+        displayAnalysisResults(result);
+        analysisStatus.textContent = "Analysis completed successfully!";
+        analysisStatus.style.color = "#28a745";
+      } else {
+        analysisStatus.textContent = `Analysis failed: ${result.error || 'Unknown error'}`;
+        analysisStatus.style.color = "#dc3545";
+      }
+    } catch (error) {
+      analysisStatus.textContent = `Analysis failed: ${error.message}`;
+      analysisStatus.style.color = "#dc3545";
+    } finally {
+      analyzeBtn.disabled = false;
+      analyzeBtn.textContent = "Analyze Conversation";
+    }
+  }
+
+  async function createMiroDiagram() {
+    if (!currentBotId) {
+      alert("No active bot. Please start a meeting first.");
+      return;
+    }
+    
+    createDiagramBtn.disabled = true;
+    createDiagramBtn.textContent = "Creating...";
+    analysisStatus.textContent = "Creating Miro diagram...";
+    
+    try {
+      const resp = await fetch(`/create-diagram/${currentBotId}`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"}
+      });
+      
+      const result = await resp.json();
+      
+      if (resp.ok && result.diagram && result.diagram.success) {
+        analysisStatus.textContent = "Miro diagram created successfully!";
+        analysisStatus.style.color = "#28a745";
+        
+        // Show the Miro board URL
+        const miroLink = document.createElement("a");
+        miroLink.href = result.diagram.board_url;
+        miroLink.target = "_blank";
+        miroLink.textContent = "Open Miro Board";
+        miroLink.style.marginLeft = "10px";
+        miroLink.style.color = "#007bff";
+        
+        analysisStatus.appendChild(miroLink);
+        
+        // Also display the analysis results
+        if (result.analysis && !result.analysis.error) {
+          displayAnalysisResults(result.analysis);
+        }
+      } else {
+        const errorMsg = result.diagram?.error || result.error || 'Unknown error';
+        analysisStatus.textContent = `Diagram creation failed: ${errorMsg}`;
+        analysisStatus.style.color = "#dc3545";
+      }
+    } catch (error) {
+      analysisStatus.textContent = `Diagram creation failed: ${error.message}`;
+      analysisStatus.style.color = "#dc3545";
+    } finally {
+      createDiagramBtn.disabled = false;
+      createDiagramBtn.textContent = "Create Miro Diagram";
+    }
+  }
+
+  function displayAnalysisResults(analysis) {
+    let html = "<div style='font-size: 0.9em;'>";
+    
+    if (analysis.topics && analysis.topics.length > 0) {
+      html += "<h4>📋 Key Topics</h4><ul>";
+      analysis.topics.slice(0, 5).forEach(topic => {
+        html += `<li><strong>${topic.name}</strong> (${Math.round(topic.importance * 100)}% important)<br><small>${topic.description || ''}</small></li>`;
+      });
+      html += "</ul>";
+    }
+    
+    if (analysis.decisions && analysis.decisions.length > 0) {
+      html += "<h4>✅ Decisions Made</h4><ul>";
+      analysis.decisions.slice(0, 3).forEach(decision => {
+        html += `<li><strong>${decision.title}</strong><br><small>${decision.description || ''}</small></li>`;
+      });
+      html += "</ul>";
+    }
+    
+    if (analysis.action_items && analysis.action_items.length > 0) {
+      html += "<h4>📝 Action Items</h4><ul>";
+      analysis.action_items.slice(0, 5).forEach(item => {
+        const priority = item.priority === 'high' ? '🔴' : item.priority === 'medium' ? '🟡' : '🟢';
+        html += `<li>${priority} <strong>${item.task}</strong> (${item.assignee || 'Unassigned'})</li>`;
+      });
+      html += "</ul>";
+    }
+    
+    if (analysis.speakers && analysis.speakers.length > 0) {
+      html += "<h4>👥 Speakers</h4><ul>";
+      analysis.speakers.forEach(speaker => {
+        html += `<li><strong>${speaker.name}</strong> - ${speaker.role || 'Participant'} (${Math.round(speaker.engagement * 100)}% engaged)</li>`;
+      });
+      html += "</ul>";
+    }
+    
+    html += "</div>";
+    
+    analysisContent.innerHTML = html;
+    analysisResults.style.display = "block";
+  }
+
+  // Event handlers
+  analyzeBtn.onclick = analyzeConversation;
+  createDiagramBtn.onclick = createMiroDiagram;
 
   function checkZoomUrl() {
     const url = meetingUrl.value.trim().toLowerCase();
