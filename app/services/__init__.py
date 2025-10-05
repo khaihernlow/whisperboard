@@ -252,6 +252,21 @@ class MiroService:
             raise Exception(f"Failed to get board items: {response.text}")
         
         return response.json().get('data', [])
+
+    def get_board_connectors(self, board_id: str) -> list:
+        """Get all connectors on a board (single page)."""
+        if not self.access_token:
+            raise Exception("Miro access token not configured")
+        response = requests.get(
+            f"{self.base_url}/boards/{board_id}/connectors",
+            headers={
+                "Authorization": f"Bearer {self.access_token}",
+                "Content-Type": "application/json"
+            }
+        )
+        if response.status_code != 200:
+            raise Exception(f"Failed to get connectors: {response.text}")
+        return response.json().get('data', [])
     
     def clear_board_items(self, board_id: str) -> None:
         """Clear all items from a board. Handles pagination by looping until empty."""
@@ -335,6 +350,41 @@ class MiroService:
             raise Exception(f"Failed to create connector: {response.text}")
         
         return response.json()
+
+    def update_connector(self, board_id: str, connector_id: str, style: Dict = None, caption: str = None, shape: str = None) -> Dict:
+        """Update an existing connector's properties (style/captions/shape)."""
+        if not self.access_token:
+            raise Exception("Miro access token not configured")
+        payload: Dict = {}
+        if style:
+            payload["style"] = style
+        if caption is not None:
+            payload["captions"] = ([{"content": caption}] if caption else [])
+        if shape:
+            payload["shape"] = shape
+        response = requests.patch(
+            f"{self.base_url}/boards/{board_id}/connectors/{connector_id}",
+            headers={
+                "Authorization": f"Bearer {self.access_token}",
+                "Content-Type": "application/json"
+            },
+            json=payload
+        )
+        if response.status_code not in (200, 201):
+            raise Exception(f"Failed to update connector: {response.text}")
+        return response.json()
+
+    def delete_connector(self, board_id: str, connector_id: str) -> None:
+        """Delete a connector by ID."""
+        if not self.access_token:
+            raise Exception("Miro access token not configured")
+        requests.delete(
+            f"{self.base_url}/boards/{board_id}/connectors/{connector_id}",
+            headers={
+                "Authorization": f"Bearer {self.access_token}",
+                "Content-Type": "application/json"
+            }
+        )
     
     def create_shape(self, board_id: str, shape_type: str, content: str, position: Dict, 
                     style: Dict = None) -> Dict:
@@ -518,6 +568,22 @@ class MiroService:
             ('decisions', 'actions'), ('actions', 'decisions')
         }
 
+        # Build an index of existing connectors (startId,endId) → connector
+        try:
+            existing_connectors = self.get_board_connectors(board_id)
+        except Exception:
+            existing_connectors = []
+        connector_index = {}
+        for c in existing_connectors:
+            try:
+                s = ((c.get('startItem') or {}).get('id')) or ((c.get('start') or {}).get('item') or {}).get('id')
+                e = ((c.get('endItem') or {}).get('id')) or ((c.get('end') or {}).get('item') or {}).get('id')
+                if s and e:
+                    connector_index[(s, e)] = c
+            except Exception:
+                continue
+
+        desired_pairs = set()
         for rel in analysis_data.get('relationships', [])[:20]:
             from_id = rel.get('from')
             to_id = rel.get('to')
@@ -537,16 +603,47 @@ class MiroService:
                 "strokeStyle": "dashed" if strength < 0.5 else "normal"
             }
             try:
-                connectors_created.append(self.create_connector(
-                    board_id,
-                    src['id'],
-                    dst['id'],
-                    style=style,
-                    caption=rel.get('type'),
-                    shape="elbowed"
-                ))
+                key = (src['id'], dst['id'])
+                desired_pairs.add(key)
+                existing = connector_index.get(key)
+                if existing:
+                    # Update style/caption/shape rather than duplicate
+                    updated = self.update_connector(
+                        board_id,
+                        existing.get('id'),
+                        style=style,
+                        caption=rel.get('type'),
+                        shape="elbowed"
+                    )
+                    connectors_created.append(updated)
+                else:
+                    created = self.create_connector(
+                        board_id,
+                        src['id'],
+                        dst['id'],
+                        style=style,
+                        caption=rel.get('type'),
+                        shape="elbowed"
+                    )
+                    connectors_created.append(created)
             except Exception:
                 pass
+
+        # Cleanup: remove stale connectors between our current nodes that are no longer desired
+        try:
+            item_ids_in_run = {item['id'] for item in id_to_item.values() if item and item.get('id')}
+            for c in existing_connectors:
+                s = ((c.get('startItem') or {}).get('id')) or ((c.get('start') or {}).get('item') or {}).get('id')
+                e = ((c.get('endItem') or {}).get('id')) or ((c.get('end') or {}).get('item') or {}).get('id')
+                if not s or not e:
+                    continue
+                if s in item_ids_in_run and e in item_ids_in_run and (s, e) not in desired_pairs:
+                    try:
+                        self.delete_connector(board_id, c.get('id'))
+                    except Exception:
+                        pass
+        except Exception:
+            pass
 
         # Summary / frame label
         summary = analysis_data.get('summary', {})
